@@ -8,6 +8,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from aircraft_ai.agent import Agent, ReplayBuffer, Transition
 from aircraft_ai.env import AircraftEnv
@@ -67,7 +68,9 @@ def main() -> None:
     epsilon = args.epsilon_start
     global_step = 0
 
-    for episode in range(1, args.episodes + 1):
+    progress = tqdm(range(1, args.episodes + 1), desc="训练进度", unit="ep")
+
+    for episode in progress:
         obs = env.reset()
         done = False
         episode_reward = 0.0
@@ -109,10 +112,21 @@ def main() -> None:
         if episode % args.eval_interval == 0:
             eval_reward, eval_steps = evaluate(eval_env, agent)
 
-        print(
+        progress.set_postfix(
+            {
+                "steps": f"{moves:3d}",
+                "reward": f"{episode_reward:6.2f}",
+                "eps": f"{epsilon:.3f}",
+                "eval_r": f"{eval_reward:.2f}" if not np.isnan(eval_reward) else "--",
+                "eval_s": f"{eval_steps:.1f}" if not np.isnan(eval_steps) else "--",
+            }
+        )
+
+        log_line = (
             f"Episode {episode:05d} | steps={moves:3d} | reward={episode_reward:6.2f} | "
             f"epsilon={epsilon:.3f} | eval_reward={eval_reward:.2f} | eval_steps={eval_steps:.1f}"
         )
+        tqdm.write(log_line)
 
     agent.save(args.save_path)
     print(f"模型已保存至 {args.save_path}")
