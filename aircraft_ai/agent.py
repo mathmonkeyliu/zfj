@@ -77,7 +77,7 @@ class Agent:
     def select_action(self, state: np.ndarray, mask: np.ndarray, epsilon: float) -> int:
         valid_indices = np.flatnonzero(mask)
         if len(valid_indices) == 0:
-            raise ValueError("没有可用的行动可选，状态非法。")
+            raise ValueError("No valid actions available, invalid state.")
 
         if np.random.rand() < epsilon:
             return int(np.random.choice(valid_indices))

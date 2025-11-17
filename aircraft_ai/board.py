@@ -46,7 +46,7 @@ class Board:
         while len(self.planes) < PLANES_PER_SIDE:
             attempts += 1
             if attempts > 10_000:
-                raise RuntimeError("无法在棋盘上放置所有飞机，请重试或调整参数。")
+                raise RuntimeError("Failed to place all planes on board, please retry or adjust parameters.")
 
             orientation = self._rng.choice(Plane.all_orientations())
             head = (self._rng.randrange(BOARD_SIZE), self._rng.randrange(BOARD_SIZE))

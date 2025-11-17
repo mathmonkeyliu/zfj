@@ -32,16 +32,16 @@ class PolicyWrapper:
                 agent = Agent(device=device)
                 agent.load(model_path)
                 self.agent = agent
-                print(f"已加载模型: {model_path}")
-            except Exception as exc:  # pragma: no cover - 仅运行时提示
-                print(f"加载模型失败，改用随机策略: {exc}")
+                print(f"Model loaded: {model_path}")
+            except Exception as exc:  # pragma: no cover - runtime only
+                print(f"Failed to load model, using random policy: {exc}")
         else:
-            print(f"未发现模型 {model_path} ，改用随机策略。")
+            print(f"Model not found at {model_path}, using random policy.")
 
     def act(self, obs: np.ndarray, mask: np.ndarray) -> int:
         valid = np.flatnonzero(mask)
         if len(valid) == 0:
-            raise ValueError("无可用行动")
+            raise ValueError("No valid actions available")
         if self.agent is None:
             return int(np.random.choice(valid))
         return self.agent.select_action(obs, mask, epsilon=0.0)
@@ -76,9 +76,9 @@ class BattleSession:
             return
         action = row * BOARD_SIZE + col
         feedback = self.player_state.apply_action(action)
-        self.last_move = ("玩家", row, col, feedback.info.get("result"))
+        self.last_move = ("Player", row, col, feedback.info.get("result"))
         if feedback.done:
-            self.winner = "玩家"
+            self.winner = "Player"
             return
         self.current_turn = "ai"
         self._ai_turn()
@@ -89,14 +89,14 @@ class BattleSession:
         obs = self.ai_state.observation()
         mask = self.ai_state.action_mask()
         if mask.sum() == 0:
-            self.winner = "玩家" if not self.auto_mode else "左侧AI"
+            self.winner = "Player" if not self.auto_mode else "Left AI"
             return
         action = self.policy.act(obs, mask)
         feedback = self.ai_state.apply_action(action)
         row, col = divmod(action, BOARD_SIZE)
         self.last_move = ("AI", row, col, feedback.info.get("result"))
         if feedback.done:
-            self.winner = "AI" if not self.auto_mode else "右侧AI"
+            self.winner = "AI" if not self.auto_mode else "Right AI"
         else:
             self.current_turn = "player"
 
@@ -107,14 +107,14 @@ class BattleSession:
             obs = self.player_state.observation()
             mask = self.player_state.action_mask()
             if mask.sum() == 0:
-                self.winner = "右侧AI"
+                self.winner = "Right AI"
                 return
             action = self.policy.act(obs, mask)
             feedback = self.player_state.apply_action(action)
             row, col = divmod(action, BOARD_SIZE)
-            self.last_move = ("左侧AI", row, col, feedback.info.get("result"))
+            self.last_move = ("Left AI", row, col, feedback.info.get("result"))
             if feedback.done:
-                self.winner = "左侧AI"
+                self.winner = "Left AI"
             else:
                 self.current_turn = "ai"
         else:
@@ -147,7 +147,7 @@ class GameUI:
         width = self.cell_size * BOARD_SIZE * 2 + self.gap + self.margin * 2
         height = self.cell_size * BOARD_SIZE + self.margin * 2 + 160
         self.screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption("炸飞机 - 深度强化学习对手")
+        pygame.display.set_caption("Aircraft Battle - Deep RL Opponent")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 24)
         self.small_font = pygame.font.Font(None, 18)
@@ -242,43 +242,43 @@ class GameUI:
                 pygame.draw.rect(self.screen, self.PLANE_HINT, cell_rect.inflate(-8, -8), 2)
 
     def _draw_labels(self) -> None:
-        left_text = f"我方进攻面板 | 已击落: {PLANES_PER_SIDE - self.session.remaining_ai_planes()} / {PLANES_PER_SIDE}"
-        right_text = f"AI进攻面板 | 我方剩余: {self.session.remaining_player_planes()} 架"
+        left_text = f"Player Attack Panel | Destroyed: {PLANES_PER_SIDE - self.session.remaining_ai_planes()} / {PLANES_PER_SIDE}"
+        right_text = f"AI Attack Panel | Player Remaining: {self.session.remaining_player_planes()} planes"
         lt = self.font.render(left_text, True, self.TEXT_COLOR)
         rt = self.font.render(right_text, True, self.TEXT_COLOR)
         self.screen.blit(lt, (self._grid_rect(True).x, self._grid_rect(True).y - 30))
         self.screen.blit(rt, (self._grid_rect(False).x, self._grid_rect(False).y - 30))
 
-        instructions = "[鼠标] 攻击对手  [R] 重置  [空格] AI自博弈"
+        instructions = "[Mouse] Attack  [R] Reset  [Space] AI Self-Play"
         inst_surface = self.font.render(instructions, True, self.TEXT_COLOR)
         self.screen.blit(inst_surface, (self.margin, self._grid_rect(True).bottom + 20))
 
-        mode_text = "自博弈: 开" if self.session.auto_mode else "自博弈: 关"
+        mode_text = "Self-Play: ON" if self.session.auto_mode else "Self-Play: OFF"
         status_text = mode_text
         if self.session.winner:
-            status_text = f"胜者: {self.session.winner}"
+            status_text = f"Winner: {self.session.winner}"
         status_surface = self.font.render(status_text, True, self.TEXT_COLOR)
         self.screen.blit(status_surface, (self.margin, self._grid_rect(True).bottom + 60))
 
         if self.session.last_move:
             actor, row, col, result = self.session.last_move
-            desc = "未击中"
+            desc = "Miss"
             if result:
                 if result.outcome.name == "HEAD":
-                    desc = "击落机头"
+                    desc = "Head Shot"
                 elif result.outcome.name == "HIT":
-                    desc = "击中机身"
+                    desc = "Body Hit"
                 else:
-                    desc = "未击中"
-            move_text = f"最近动作: {actor} -> {coord_label(row, col)} ({desc})"
+                    desc = "Miss"
+            move_text = f"Last Move: {actor} -> {coord_label(row, col)} ({desc})"
             move_surface = self.small_font.render(move_text, True, self.TEXT_COLOR)
             self.screen.blit(move_surface, (self.margin, self._grid_rect(True).bottom + 95))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="炸飞机图形界面")
-    parser.add_argument("--model", type=Path, default=Path("artifacts/aircraft_dqn.pt"), help="模型路径")
-    parser.add_argument("--fps", type=int, default=60, help="刷新率")
+    parser = argparse.ArgumentParser(description="Aircraft Battle GUI")
+    parser.add_argument("--model", type=Path, default=Path("artifacts/aircraft_dqn.pt"), help="Model path")
+    parser.add_argument("--fps", type=int, default=60, help="Frame rate")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

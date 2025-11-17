@@ -24,9 +24,9 @@ class Segment(Enum):
 
 BASE_OFFSETS: Dict[Segment, Sequence[Coordinate]] = {
     Segment.HEAD: [(0, 0)],
-    # 桥梁 + 尾翼：单个连接单元 + 底部 3 格
+    # Bridge + tail: single connecting cell + 3 bottom cells
     Segment.BODY: [(0, -2), (-1, -3), (0, -3), (1, -3)],
-    # 5 格水平机翼
+    # 5 horizontal wing cells
     Segment.WING: [(-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1)],
 }
 

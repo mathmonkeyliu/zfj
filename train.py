@@ -15,21 +15,21 @@ from aircraft_ai.env import AircraftEnv
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="训练炸飞机DQN智能体")
-    parser.add_argument("--episodes", type=int, default=4000, help="训练轮数")
-    parser.add_argument("--batch-size", type=int, default=256, help="每次优化的批大小")
-    parser.add_argument("--replay-size", type=int, default=50_000, help="经验回放容量")
-    parser.add_argument("--hidden-dim", type=int, default=256, help="网络隐藏层维度")
-    parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子")
-    parser.add_argument("--lr", type=float, default=1e-3, help="学习率")
-    parser.add_argument("--epsilon-start", type=float, default=1.0, help="起始探索率")
-    parser.add_argument("--epsilon-end", type=float, default=0.05, help="最低探索率")
-    parser.add_argument("--epsilon-decay", type=float, default=0.999, help="每步的探索率衰减因子")
-    parser.add_argument("--target-update", type=int, default=200, help="目标网络同步间隔")
-    parser.add_argument("--eval-interval", type=int, default=400, help="评估间隔")
-    parser.add_argument("--save-path", type=Path, default=Path("artifacts/aircraft_dqn.pt"), help="模型保存路径")
-    parser.add_argument("--seed", type=int, default=42, help="随机种子")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="计算设备")
+    parser = argparse.ArgumentParser(description="Train Aircraft Battle DQN Agent")
+    parser.add_argument("--episodes", type=int, default=4000, help="Number of training episodes")
+    parser.add_argument("--batch-size", type=int, default=256, help="Batch size for optimization")
+    parser.add_argument("--replay-size", type=int, default=50_000, help="Replay buffer capacity")
+    parser.add_argument("--hidden-dim", type=int, default=256, help="Hidden layer dimension")
+    parser.add_argument("--gamma", type=float, default=0.98, help="Discount factor")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--epsilon-start", type=float, default=1.0, help="Initial exploration rate")
+    parser.add_argument("--epsilon-end", type=float, default=0.05, help="Minimum exploration rate")
+    parser.add_argument("--epsilon-decay", type=float, default=0.999, help="Exploration decay per step")
+    parser.add_argument("--target-update", type=int, default=200, help="Target network update interval")
+    parser.add_argument("--eval-interval", type=int, default=400, help="Evaluation interval")
+    parser.add_argument("--save-path", type=Path, default=Path("artifacts/aircraft_dqn.pt"), help="Model save path")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Compute device")
     return parser.parse_args()
 
 
@@ -68,7 +68,7 @@ def main() -> None:
     epsilon = args.epsilon_start
     global_step = 0
 
-    progress = tqdm(range(1, args.episodes + 1), desc="训练进度", unit="ep")
+    progress = tqdm(range(1, args.episodes + 1), desc="Training", unit="ep")
 
     for episode in progress:
         obs = env.reset()
@@ -129,7 +129,7 @@ def main() -> None:
         tqdm.write(log_line)
 
     agent.save(args.save_path)
-    print(f"模型已保存至 {args.save_path}")
+    print(f"Model saved to {args.save_path}")
 
 
 if __name__ == "__main__":

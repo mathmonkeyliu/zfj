@@ -1,4 +1,4 @@
-"""炸飞机强化学习AI核心模块。"""
+"""Aircraft Battle Deep RL AI core modules."""
 
 __all__ = [
     "agent",
