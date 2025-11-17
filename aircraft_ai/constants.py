@@ -1,0 +1,15 @@
+BOARD_SIZE = 10
+PLANES_PER_SIDE = 3
+MAX_TURNS = BOARD_SIZE * BOARD_SIZE
+
+# Cell status codes for knowledge boards
+CELL_UNKNOWN = 0
+CELL_MISS = 1
+CELL_HIT = 2
+CELL_HEAD = 3
+
+# Reward shaping constants for RL
+REWARD_MISS = -0.2
+REWARD_BODY = 1.0
+REWARD_HEAD = 5.0
+REWARD_COMPLETE = 20.0
