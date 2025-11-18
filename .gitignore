@@ -10,4 +10,5 @@ __pycache__/
 *.pyzwzw
 *.pyzwzwzw
 
-ai_model.pkl
+*.pkl
+models/

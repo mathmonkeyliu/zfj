@@ -46,8 +46,9 @@ class PlaneGame:
     # 格式：(col_offset, row_offset)，其中row_offset是屏幕坐标系中的行偏移
     PLANE_SHAPE_UP = [
         (0, 0),      # 机头
-        (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),  # 机身（在机头下方1行）
-        (0, 2), (-1, 2), (1, 2)  # 机翼（在机头下方2行）
+        (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),  # 机身 part 1
+        (0, 2),                                   # 机身 part 2
+        (-1, 3), (0, 3), (1, 3)                   # 机身 part 3
     ]
     
     def __init__(self):
@@ -115,8 +116,7 @@ class PlaneGame:
         for dx, dy in offsets:
             row = head_row + dy
             col = head_col + dx
-            if 0 <= row < self.BOARD_SIZE and 0 <= col < self.BOARD_SIZE:
-                cells.append((row, col))
+            cells.append((row, col))
         
         return cells
     

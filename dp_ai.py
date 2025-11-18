@@ -222,8 +222,15 @@ class DPAI:
         
         return result, reward
     
-    def save_model(self, filepath: str):
-        """保存模型"""
+    def save_model(self, filepath: str, episode: int = None, training_stats: dict = None):
+        """
+        保存模型
+        
+        Args:
+            filepath: 保存路径
+            episode: 当前训练轮次（可选）
+            training_stats: 训练统计信息（可选）
+        """
         model_data = {
             'value_function': self.value_function,
             'q_function': self.q_function,
@@ -231,14 +238,21 @@ class DPAI:
             'board_size': self.board_size,
             'learning_rate': self.learning_rate,
             'discount_factor': self.discount_factor,
-            'epsilon': self.epsilon
+            'epsilon': self.epsilon,
+            'episode': episode,  # 保存训练轮次
+            'training_stats': training_stats  # 保存训练统计信息
         }
         with open(filepath, 'wb') as f:
             pickle.dump(model_data, f)
-        print(f"模型已保存到: {filepath}")
+        print(f"模型已保存到: {filepath}" + (f" (轮次: {episode})" if episode is not None else ""))
     
     def load_model(self, filepath: str):
-        """加载模型"""
+        """
+        加载模型
+        
+        Returns:
+            dict: 包含训练信息的字典，包括 'episode' 和 'training_stats'
+        """
         if os.path.exists(filepath):
             with open(filepath, 'rb') as f:
                 model_data = pickle.load(f)
@@ -249,9 +263,15 @@ class DPAI:
             self.learning_rate = model_data.get('learning_rate', 0.1)
             self.discount_factor = model_data.get('discount_factor', 0.9)
             self.epsilon = model_data.get('epsilon', 0.1)
-            print(f"模型已从 {filepath} 加载")
+            
+            episode = model_data.get('episode', 0)
+            training_stats = model_data.get('training_stats', {})
+            
+            print(f"模型已从 {filepath} 加载" + (f" (已训练轮次: {episode})" if episode > 0 else ""))
+            return {'episode': episode, 'training_stats': training_stats}
         else:
             print(f"模型文件不存在: {filepath}，使用新模型")
+            return {'episode': 0, 'training_stats': {}}
     
     def get_statistics(self) -> Dict:
         """获取统计信息"""
@@ -260,4 +280,37 @@ class DPAI:
             'num_q_entries': len(self.q_function),
             'epsilon': self.epsilon
         }
+    
+    def save_model_for_inference(self, filepath: str):
+        """
+        保存推理专用模型（只保存Q函数，减小文件大小）
+        
+        Args:
+            filepath: 保存路径
+        """
+        model_data = {
+            'q_function': self.q_function,  # 只保存Q函数，推理时只需要这个
+            'board_size': self.board_size,
+            'epsilon': 0.0  # 推理时不需要探索
+        }
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f)
+        print(f"推理模型已保存到: {filepath} (文件大小已优化)")
+    
+    def load_model_for_inference(self, filepath: str):
+        """
+        加载推理专用模型
+        
+        Args:
+            filepath: 模型文件路径
+        """
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                model_data = pickle.load(f)
+            self.q_function = model_data['q_function']
+            self.board_size = model_data.get('board_size', 10)
+            self.epsilon = 0.0  # 推理时不探索
+            print(f"推理模型已从 {filepath} 加载")
+        else:
+            print(f"模型文件不存在: {filepath}，使用新模型")
 

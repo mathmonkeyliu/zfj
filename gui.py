@@ -29,11 +29,27 @@ class PlaneGameGUI:
         self.current_player = 1
         self.ai_thinking = False
         
-        # 尝试加载AI模型
-        try:
-            self.ai.load_model("ai_model.pkl")
-        except:
-            pass
+        # 尝试加载AI模型（优先使用推理专用模型）
+        import os
+        inference_model = "ai_model_inference.pkl"
+        full_model = "ai_model.pkl"
+        
+        if os.path.exists(inference_model):
+            try:
+                self.ai.load_model_for_inference(inference_model)
+                print(f"已加载推理专用模型: {inference_model}")
+            except:
+                try:
+                    self.ai.load_model(full_model)
+                except:
+                    pass
+        elif os.path.exists(full_model):
+            try:
+                self.ai.load_model(full_model)
+                # 推理时不需要探索
+                self.ai.epsilon = 0.0
+            except:
+                pass
         
         self.setup_ui()
         self.new_game()

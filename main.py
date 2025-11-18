@@ -18,6 +18,8 @@ def main():
                        help="模型文件路径")
     parser.add_argument("--self-play", action="store_true", 
                        help="使用自我对弈模式训练")
+    parser.add_argument("--gpu", action="store_true", 
+                       help="使用GPU加速（注意：基于表格的方法GPU加速效果有限）")
     
     args = parser.parse_args()
     
@@ -29,9 +31,9 @@ def main():
         # 启动训练
         from train import train_ai, train_with_self_play
         if args.self_play:
-            train_with_self_play(args.episodes, args.save_interval, args.model)
+            train_with_self_play(args.episodes, args.save_interval, args.model, args.gpu)
         else:
-            train_ai(args.episodes, args.save_interval, args.model)
+            train_ai(args.episodes, args.save_interval, args.model, args.gpu)
 
 
 if __name__ == "__main__":
