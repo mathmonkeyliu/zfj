@@ -126,7 +126,7 @@ python train_alphazero.py \
 ## 图形界面与对战
 
 ```bash
-python play_gui.py --model artifacts/alphazero.pt --mcts-simulations 100
+python play_gui.py --model artifacts/checkpoints/checkpoint_latest.pt --mcts-simulations 100
 ```
 
 **参数说明：**

@@ -35,7 +35,17 @@ class PolicyWrapper:
         if model_path.exists():
             try:
                 network = AlphaZeroNet().to(device)
-                network.load_state_dict(torch.load(model_path, map_location=device))
+                checkpoint = torch.load(model_path, map_location=device)
+                
+                # 支持新格式（包含model_state_dict）和旧格式（直接是state_dict）
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    network.load_state_dict(checkpoint["model_state_dict"])
+                    print(f"Loaded checkpoint from iteration {checkpoint.get('iteration', 'unknown')}, "
+                          f"win_rate: {checkpoint.get('win_rate', 0.0):.2%}")
+                else:
+                    # 旧格式：直接是state_dict
+                    network.load_state_dict(checkpoint)
+                
                 network.eval()
                 self.network = network
                 
@@ -305,12 +315,30 @@ class GameUI:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aircraft Battle GUI")
-    parser.add_argument("--model", type=Path, default=Path("artifacts/alphazero.pt"), help="Model path")
+    parser.add_argument("--model", type=Path, default=None, help="Model path (default: try best, then latest, then main)")
     parser.add_argument("--fps", type=int, default=60, help="Frame rate")
     parser.add_argument("--mcts-simulations", type=int, default=100, help="MCTS simulations per move (lower=faster)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # 如果没有指定模型路径，尝试按优先级加载：最佳模型 -> 最新模型 -> 主模型
+    if args.model is None:
+        checkpoint_dir = Path("artifacts/checkpoints")
+        best_model = checkpoint_dir / "checkpoint_best.pt"
+        latest_model = checkpoint_dir / "checkpoint_latest.pt"
+        main_model = Path("artifacts/alphazero.pt")
+        
+        if best_model.exists():
+            args.model = best_model
+            print(f"Using best checkpoint: {best_model}")
+        elif latest_model.exists():
+            args.model = latest_model
+            print(f"Using latest checkpoint: {latest_model}")
+        else:
+            args.model = main_model
+            print(f"Using main model: {main_model}")
+    
     policy = PolicyWrapper(args.model, device, mcts_simulations=args.mcts_simulations)
     session = BattleSession(policy)
     GameUI(session, fps=args.fps).run()
