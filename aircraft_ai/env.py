@@ -13,10 +13,9 @@ from .constants import (
     CELL_MISS,
     CELL_UNKNOWN,
     MAX_TURNS,
-    REWARD_BODY,
     REWARD_COMPLETE,
     REWARD_HEAD,
-    REWARD_MISS,
+    REWARD_STEP,
 )
 
 
@@ -73,17 +72,14 @@ class AttackState:
         info = {"result": result}
 
         if self.knowledge[row, col] != CELL_UNKNOWN:
-            reward = REWARD_MISS * 2
+            reward += REWARD_STEP * 2
             return AttackFeedback(self._obs(), reward, self.done, info)
 
         self.turns += 1
 
-        if result.outcome == AttackOutcome.MISS:
-            reward = REWARD_MISS
-        elif result.outcome == AttackOutcome.HIT:
-            reward = REWARD_BODY
-        elif result.outcome == AttackOutcome.HEAD:
-            reward = REWARD_HEAD
+        reward += REWARD_STEP
+        if result.outcome == AttackOutcome.HEAD:
+            reward += REWARD_HEAD
             if self.board.all_planes_destroyed():
                 self.done = True
                 reward += REWARD_COMPLETE

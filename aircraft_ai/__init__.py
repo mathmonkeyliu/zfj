@@ -1,9 +1,10 @@
-"""Aircraft Battle Deep RL AI core modules."""
+"""Aircraft Battle AlphaZero AI core modules."""
 
 __all__ = [
-    "agent",
+    "alphazero_net",
     "board",
     "constants",
     "env",
+    "mcts",
     "plane",
 ]

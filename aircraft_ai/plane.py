@@ -19,15 +19,23 @@ class Orientation(Enum):
 class Segment(Enum):
     HEAD = auto()
     BODY = auto()
-    WING = auto()
 
 
 BASE_OFFSETS: Dict[Segment, Sequence[Coordinate]] = {
     Segment.HEAD: [(0, 0)],
-    # Bridge + tail: single connecting cell + 3 bottom cells
-    Segment.BODY: [(0, -2), (-1, -3), (0, -3), (1, -3)],
-    # 5 horizontal wing cells
-    Segment.WING: [(-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1)],
+    Segment.BODY: [
+        # Bridge + tail (4 cells)
+        (0, -2),
+        (-1, -3),
+        (0, -3),
+        (1, -3),
+        # Horizontal wing (5 cells)
+        (-2, -1),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+        (2, -1),
+    ],
 }
 
 

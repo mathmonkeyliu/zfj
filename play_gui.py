@@ -13,10 +13,11 @@ import numpy as np
 import pygame
 import torch
 
-from aircraft_ai.agent import Agent
+from aircraft_ai.alphazero_net import AlphaZeroNet
 from aircraft_ai.board import Board
 from aircraft_ai.constants import BOARD_SIZE, CELL_HEAD, CELL_HIT, CELL_MISS, CELL_UNKNOWN, PLANES_PER_SIDE
-from aircraft_ai.env import AttackState
+from aircraft_ai.env import AircraftEnv, AttackState
+from aircraft_ai.mcts import MCTS
 
 
 def coord_label(row: int, col: int) -> str:
@@ -24,16 +25,38 @@ def coord_label(row: int, col: int) -> str:
 
 
 class PolicyWrapper:
-    def __init__(self, model_path: Path, device: torch.device) -> None:
+    def __init__(self, model_path: Path, device: torch.device, mcts_simulations: int = 100) -> None:
         self.device = device
-        self.agent: Optional[Agent] = None
+        self.network: Optional[AlphaZeroNet] = None
+        self.mcts: Optional[MCTS] = None
+        self.env: Optional[AircraftEnv] = None
+        self.mcts_simulations = mcts_simulations
+        
         if model_path.exists():
             try:
-                agent = Agent(device=device)
-                agent.load(model_path)
-                self.agent = agent
+                network = AlphaZeroNet().to(device)
+                network.load_state_dict(torch.load(model_path, map_location=device))
+                network.eval()
+                self.network = network
+                
+                # 创建临时环境用于MCTS
+                self.env = AircraftEnv()
+                
+                # 创建MCTS
+                def step_fn(state: np.ndarray, action: int) -> tuple:
+                    feedback = self.env.step(action)
+                    return feedback.observation, feedback.reward, feedback.done
+                
+                self.mcts = MCTS(
+                    network=network,
+                    step_fn=step_fn,
+                    c_puct=1.0,
+                    num_simulations=mcts_simulations,
+                    temperature=0.0,  # 评估时使用确定性选择
+                    device=device,
+                )
                 print(f"Model loaded: {model_path}")
-            except Exception as exc:  # pragma: no cover - runtime only
+            except Exception as exc:
                 print(f"Failed to load model, using random policy: {exc}")
         else:
             print(f"Model not found at {model_path}, using random policy.")
@@ -42,9 +65,14 @@ class PolicyWrapper:
         valid = np.flatnonzero(mask)
         if len(valid) == 0:
             raise ValueError("No valid actions available")
-        if self.agent is None:
+        
+        if self.network is None or self.mcts is None:
             return int(np.random.choice(valid))
-        return self.agent.select_action(obs, mask, epsilon=0.0)
+        
+        # 使用MCTS搜索（快速模式，较少模拟次数）
+        self.mcts.num_simulations = self.mcts_simulations
+        action, _ = self.mcts.search(obs, mask)
+        return action
 
 
 class BattleSession:
@@ -277,12 +305,13 @@ class GameUI:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aircraft Battle GUI")
-    parser.add_argument("--model", type=Path, default=Path("artifacts/aircraft_dqn.pt"), help="Model path")
+    parser.add_argument("--model", type=Path, default=Path("artifacts/alphazero.pt"), help="Model path")
     parser.add_argument("--fps", type=int, default=60, help="Frame rate")
+    parser.add_argument("--mcts-simulations", type=int, default=100, help="MCTS simulations per move (lower=faster)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    policy = PolicyWrapper(args.model, device)
+    policy = PolicyWrapper(args.model, device, mcts_simulations=args.mcts_simulations)
     session = BattleSession(policy)
     GameUI(session, fps=args.fps).run()
 

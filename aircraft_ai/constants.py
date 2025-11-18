@@ -9,7 +9,6 @@ CELL_HIT = 2
 CELL_HEAD = 3
 
 # Reward shaping constants for RL
-REWARD_MISS = -0.2
-REWARD_BODY = 1.0
 REWARD_HEAD = 5.0
 REWARD_COMPLETE = 20.0
+REWARD_STEP = -0.5
