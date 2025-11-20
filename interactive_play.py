@@ -6,6 +6,7 @@ import glob
 from model import AlphaZeroNet
 from mcts import AlphaZeroAgent
 from consts import *
+from config import MODEL_DIR
 
 # --- 界面颜色设置 ---
 class Colors:
@@ -71,12 +72,12 @@ def print_board(view_board, last_action=None, suggested_action=None):
     print(f"  {Colors.CYAN}└─────────────────────┘{Colors.RESET}")
 
 def load_latest_model():
-    models = sorted(glob.glob("bombing_plane_v*.pth"), key=os.path.getmtime)
+    models = sorted(glob.glob(os.path.join(MODEL_DIR, "bombing_plane_v*.pth")))
     if not models:
         print(f"{Colors.RED}错误: 没有找到 .pth 模型文件。请先运行 train.py{Colors.RESET}")
         sys.exit(1)
     latest = models[-1]
-    return latest
+    return os.path.join(MODEL_DIR, latest)
 
 def main():
     # 1. 初始化

@@ -8,6 +8,7 @@ from game import BattleGame
 from model import AlphaZeroNet
 from mcts import AlphaZeroAgent
 from consts import *
+from config import MODEL_DIR
 
 # --- 颜色定义 (ANSI Escape Codes) ---
 class Colors:
@@ -157,7 +158,7 @@ if __name__ == "__main__":
     # 注意：这里默认读取 v50 版本，你可以修改为你实际训练好的文件名
     # 如果你刚开始训练，可能没有 v50，请改成 v10 或你保存的最新模型
     import glob
-    models = sorted(glob.glob("bombing_plane_v*.pth"))
+    models = sorted(glob.glob(os.path.join(MODEL_DIR, "bombing_plane_v*.pth")))
     if models:
         latest_model = models[-1]
         play_demo(latest_model)

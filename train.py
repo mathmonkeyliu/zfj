@@ -1,5 +1,8 @@
 # train.py
 import json
+import os
+import glob
+import re
 import torch
 import torch.optim as optim
 import numpy as np
@@ -7,12 +10,14 @@ import random
 from game import BattleGame
 from model import AlphaZeroNet
 from consts import GRID_SIZE
+from config import MODEL_DIR, get_model_path
 
 # 超参数
-LR = 1e-4
-EPOCHS = 100
+LR = 1e-5
+EPOCHS = 900
 BATCH_SIZE = 32
 GAMES_PER_EPOCH = 1000
+SAVE_INTERVAL = 100
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,9 +30,15 @@ def train():
     print(f"Loaded {len(layouts)} layouts.")
     
     model = AlphaZeroNet().to(device)
+    models = sorted(glob.glob(os.path.join(MODEL_DIR, "bombing_plane_v*.pth")))
+    if models:
+        EPOCHS_START = int(re.search(r'bombing_plane_v(\d+)\.pth', models[-1]).group(1))
+        model.load_state_dict(torch.load(models[-1], map_location=device))
+    else:
+        print(f"No model found in {MODEL_DIR}. Starting from scratch.")
     optimizer = optim.Adam(model.parameters(), lr=LR)
     
-    for epoch in range(EPOCHS):
+    for epoch in range(EPOCHS_START, EPOCHS_START + EPOCHS):
         model.train()
         total_loss = 0
         total_steps = 0
@@ -128,8 +139,11 @@ def train():
         print(f"Epoch {epoch+1}: Loss={total_loss:.4f}, Avg Steps to Win={avg_steps:.2f}")
         
         # 保存模型
-        if (epoch + 1) % 10 == 0:
-            torch.save(model.state_dict(), f"bombing_plane_v{epoch+1}.pth")
+        if (epoch + 1) % SAVE_INTERVAL == 0:
+            model_path = get_model_path(epoch + 1)
+            # 确保 models 目录存在
+            os.makedirs(MODEL_DIR, exist_ok=True)
+            torch.save(model.state_dict(), model_path)
 
 if __name__ == "__main__":
     train()
