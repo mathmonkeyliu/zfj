@@ -1,126 +1,25 @@
-# 炸飞机游戏 - 动态规划AI
+# Bombing Planes AI (AlphaZero-Style)
 
-一个基于动态规划算法的"炸飞机"游戏AI实现，支持人机对战和AI自我对弈。
+基于深度神经网络（ResNet）和蒙特卡洛策略生成的“炸飞机”游戏 AI。该 AI 旨在通过学习数万局合法布局，掌握在不完全信息下最优的搜索与打击策略。
 
-## 游戏规则
+## 核心算法
 
-- 10×10的网格棋盘
-- 每方有3架飞机
-- 飞机形状为"士"字形，占据9个格子（1个机头、5个机身、3个机翼）
-- 飞机可以朝向上、下、左、右四个方向放置
-- 玩家轮流攻击对方坐标
-- 击中机头即击落整架飞机
-- 先击落对方全部三架飞机者获胜
+1.  **数据驱动 (Layout Generation)**:
+    * 炸飞机的核心难点在于判断敌方布局的可能性。
+    * 我们使用 DFS/回溯算法预生成海量合法布局（JSONL格式），作为 AI 的训练环境。
 
-## 安装依赖
+2.  **神经网络 (ResNet)**:
+    * **Input**: 10x10 网格的当前状态（4通道：未知、未中、击中、击落）。
+    * **Output (Policy)**: 下一步攻击每个格子的概率分布。网络会学习“十字交叉法”以及“士”字形飞机的几何特征，优先打击最可能是机身或机头的位置。
+    * **Output (Value)**: 当前局面的胜率预估。
 
+3.  **训练策略 (Supervised/RL)**:
+    * AI 在生成的环境中进行“自我演练”。
+    * 使用真实布局作为监督信号（Ground Truth），训练网络使其输出的概率分布逼近真实飞机的分布。这等价于贝叶斯最优搜索。
+
+## 如何使用
+
+### 1. 环境依赖
+需要 Python 3.8+ 和 PyTorch。
 ```bash
-pip install -r requirements.txt
-```
-
-或者直接安装：
-
-```bash
-pip install numpy
-```
-
-## 使用方法
-
-### 1. 训练AI
-
-训练AI模型（AI自我对弈学习）：
-
-```bash
-python main.py --mode train --episodes 1000 --save-interval 100
-```
-
-使用自我对弈模式（两个AI共享同一个模型）：
-
-```bash
-python main.py --mode train --episodes 1000 --self-play
-```
-
-或者直接使用训练脚本：
-
-```bash
-python train.py --episodes 1000 --save-interval 100
-```
-
-### 2. 启动图形界面
-
-```bash
-python main.py --mode gui
-```
-
-或者直接运行：
-
-```bash
-python gui.py
-```
-
-### 3. 游戏界面说明
-
-- **我的棋盘**（左侧）：显示对方攻击我的记录
-  - 灰色：未击中
-  - 绿色：击中机身/机翼
-  - 红色：击中机头（击落）
-
-- **攻击棋盘**（右侧）：显示我攻击对方的记录
-  - 灰色：未攻击或未击中
-  - 绿色：击中机身/机翼
-  - 红色：击中机头（击落）
-
-### 4. 游戏模式
-
-- **人机对战**：玩家点击攻击棋盘进行攻击，AI自动响应
-- **AI自对弈**：两个AI自动对弈，可以观察AI的策略
-
-## 文件结构
-
-```
-zfj/
-├── game_env.py      # 游戏环境定义（规则、状态、动作）
-├── dp_ai.py         # 动态规划AI算法
-├── train.py         # 训练脚本
-├── gui.py           # 图形界面
-├── main.py          # 主程序入口
-├── requirements.txt # 依赖列表
-└── README.md        # 说明文档
-```
-
-## 核心API说明
-
-### game_env.py
-
-主要的游戏环境类 `PlaneGame`：
-
-- `reset()`: 重置游戏
-- `place_planes_random(player)`: 随机放置玩家的飞机
-- `attack(attacker, target_pos)`: 执行攻击
-- `get_state(player)`: 获取当前游戏状态
-- `get_valid_actions(player)`: 获取所有有效动作
-- `is_terminal()`: 检查游戏是否结束
-
-### dp_ai.py
-
-动态规划AI类 `DPAI`：
-
-- `select_action(game, player, training)`: 选择动作
-- `train_step(game, player)`: 执行一步训练
-- `save_model(filepath)`: 保存模型
-- `load_model(filepath)`: 加载模型
-
-## 算法说明
-
-使用Q-learning算法（一种动态规划方法）：
-- 维护状态-动作值函数 Q(s, a)
-- 使用epsilon-greedy策略平衡探索和利用
-- 通过自我对弈不断学习最优策略
-
-## 注意事项
-
-1. 首次运行需要训练AI模型，建议至少训练1000轮
-2. 训练时间取决于硬件性能，可能需要几分钟到几十分钟
-3. 模型会保存为 `ai_model.pkl`，下次运行会自动加载
-4. 如果模型文件不存在，AI会使用随机策略
-
+pip install torch numpy
