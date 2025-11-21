@@ -119,6 +119,11 @@ python -m minimum_entropy.statistics
 - 添加更多统计和分析功能
 - 支持人机对战和 AI 对战模式
 
+## 致谢
+致敬我的同学[鲁铭泽](https://github.com/maverickxone)，守护了人类最后的荣光！
+
+![人类最后的荣光](last_dance.png)
+
 ## 作者
 
 Designed by Ze Rui Liu
