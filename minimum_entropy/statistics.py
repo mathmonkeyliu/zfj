@@ -19,7 +19,7 @@ def simulate_game(layout, all_layouts):
     ai = BattleAI(all_layouts)
 
     while ai.heads_hit < 3 and steps < max_steps:
-        move = ai.get_best_move()
+        move = ai.get_best_move(method='gini_index')
         if move is None:
             break
         
@@ -122,8 +122,8 @@ Percentiles:
                     verticalalignment='center', family='monospace')
     
     plt.tight_layout()
-    plt.savefig('statistics_results.png', dpi=150, bbox_inches='tight')
-    print(f"\nChart saved to: statistics_results.png")
+    plt.savefig('statistics_results_gini_index.png', dpi=150, bbox_inches='tight')
+    print(f"\nChart saved to: statistics_results_gini_index.png")
     plt.show()
     
     return steps_list, {

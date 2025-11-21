@@ -41,11 +41,19 @@ class BattleAI:
        
         self.layouts = remain_layouts
 
-    def get_best_move(self):
-        # if len(self.layouts) <= 10:
-        #     move, steps = self.best_move_min_steps(self.layouts, self.board_state, self.valid_moves, self.heads_hit)
-        #     return move
+    def get_best_move(self, method: str = 'best'):
+        if method == 'best':
+            return self._maximum_entropy(regularization=KILL_WEIGHT)
+        elif method == 'minimum_entropy':
+            return self._minimum_entropy()
+        elif method == 'gini_index':
+            return self._gini_index()
+        else:
+            raise ValueError(f"Invalid method: {method}")
         
+
+
+    def _minimum_entropy(self, regularization: float = 0.0):
         if self.heads_hit >= 3:
             return None
            
@@ -81,7 +89,7 @@ class BattleAI:
                     p = count / total
                     entropy -= p * math.log2(p)
            
-            current_score = entropy + KILL_WEIGHT * c_head / total
+            current_score = entropy + regularization * c_head / total
            
             if current_score > best_score:
                 best_score = current_score
@@ -90,7 +98,52 @@ class BattleAI:
         return best_move
 
 
-    def best_move_min_steps(self, layouts, board_state, valid_moves, heads_hit):
+    def _gini_index(self):
+        if self.heads_hit >= 3:
+            return None
+           
+        if len(self.layouts) == 1:
+            layout = self.layouts[0]
+            remaining_heads = [h for h in layout['heads'] if self.board_state[h[0]][h[1]] != State.HEAD]
+            if remaining_heads:
+                return remaining_heads[0]
+            return None
+
+        # a little trick
+        if len(self.valid_moves) == 100:
+            return [3, 3]
+
+        best_score = 0
+        best_move = None
+        total = len(self.layouts)
+       
+        for x, y in self.valid_moves:
+            c_miss, c_body, c_head = 0, 0, 0
+           
+            for layout in self.layouts:
+                if [x, y] in layout['heads']:
+                    c_head += 1
+                elif [x, y] in layout['bodies']:
+                    c_body += 1
+                else:
+                    c_miss += 1
+           
+            gini_index = 1
+            for count in [c_miss, c_body, c_head]:
+                if count > 0:
+                    p = count / total
+                    gini_index -= p * p
+           
+            current_score = gini_index
+           
+            if current_score > best_score:
+                best_score = current_score
+                best_move = [x, y]
+               
+        return best_move
+
+
+    def dfs(self, layouts, board_state, valid_moves, heads_hit):
         if heads_hit == 3:
             return None, 0
 
@@ -131,7 +184,7 @@ class BattleAI:
                 new_valid_moves = deepcopy(valid_moves)
                 new_valid_moves.remove([x, y])
 
-                _, remaining_steps = self.best_move_min_steps(new_layouts, new_board_state, new_valid_moves, new_heads_hit)
+                _, remaining_steps = self.dfs(new_layouts, new_board_state, new_valid_moves, new_heads_hit)
                 steps = 1 + remaining_steps
                 print(f"Move: {x}, {y}, Result: {result}, Steps: {steps}")
                 worst_case = max(worst_case, steps)

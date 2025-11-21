@@ -126,4 +126,4 @@ python -m minimum_entropy.statistics
 
 ## 作者
 
-Designed by Ze Rui Liu
+Designed by Ze Rui Liu, USTC
