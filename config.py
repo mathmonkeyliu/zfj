@@ -1,19 +1,28 @@
 # config.py
-import os
+from enum import Enum, auto
 
-# 模型保存配置
-MODEL_DIR = "models"
-MODEL_NAME_PATTERN = "bombing_plane_v{epoch:04d}.pth"
+GRID_SIZE = 10
+LAYOUT_FILE = "all_layouts.jsonl"
 
-def get_model_path(epoch):
-    """
-    获取指定epoch的模型文件路径
-    
-    Args:
-        epoch: epoch编号（从1开始）
-    
-    Returns:
-        模型文件的完整路径
-    """
-    return os.path.join(MODEL_DIR, MODEL_NAME_PATTERN.format(epoch=epoch))
+RELATIVE_COORDS = [
+    (-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1),
+    (0, -2),
+    (-1, -3), (0, -3), (1, -3)
+]
 
+
+class State(Enum):
+    UNKNOWN = auto()
+    MISS = auto()
+    BODY = auto()
+    HEAD = auto()
+
+
+class Direction(Enum):
+    UP = auto()
+    RIGHT = auto()
+    DOWN = auto()
+    LEFT = auto()
+
+    def __str__(self):
+        return self.name
