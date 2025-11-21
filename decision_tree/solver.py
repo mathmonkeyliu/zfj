@@ -44,6 +44,8 @@ class BattleAI:
     def get_best_move(self, method: str = 'best'):
         if method == 'best':
             return self._maximum_entropy(regularization=KILL_WEIGHT)
+        elif method == 'test':
+            return self._test()
         elif method == 'minimum_entropy':
             return self._minimum_entropy()
         elif method == 'gini_index':
@@ -51,6 +53,9 @@ class BattleAI:
         else:
             raise ValueError(f"Invalid method: {method}")
         
+
+    def _test(self, alpha: float = 1.5):
+        pass
 
 
     def _minimum_entropy(self, regularization: float = 0.0):
