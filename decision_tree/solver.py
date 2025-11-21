@@ -43,7 +43,7 @@ class BattleAI:
 
     def get_best_move(self, method: str = 'best'):
         if method == 'best':
-            return self._maximum_entropy(regularization=KILL_WEIGHT)
+            return self._minimum_entropy(regularization=KILL_WEIGHT)
         elif method == 'test':
             return self._test()
         elif method == 'minimum_entropy':
