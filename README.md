@@ -38,7 +38,7 @@ zfj/
 ├── layout_generater.py          # 生成所有可能的飞机布局
 ├── main.py
 ├── all_layouts.jsonl           # 所有合法布局数据
-└── minimum_entropy/
+└── decision_tree/
     ├── __init__.py
     ├── solver.py               # AI 核心算法（最小熵搜索）
     ├── interactive_play.py    # 交互式游戏界面
@@ -73,7 +73,7 @@ python layout_generater.py
 与 AI 进行交互式游戏，AI 会给出建议的打击坐标，您需要输入打击结果：
 
 ```bash
-python -m minimum_entropy.interactive_play
+python -m decision_tree.interactive_play
 ```
 
 游戏界面说明：
@@ -92,7 +92,7 @@ python -m minimum_entropy.interactive_play
 运行统计测试，评估 AI 在不同布局下的表现：
 
 ```bash
-python -m minimum_entropy.statistics
+python -m decision_tree.statistics
 ```
 
 这将：
