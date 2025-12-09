@@ -8,7 +8,7 @@ LAYOUT_FILE = "layouts.jsonl"
 RELATIVE_COORDS = [(-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1), (0, -2), (-1, -3), (0, -3), (1, -3)]
 
 
-class State(Enum):
+class GridState(Enum):
     UNKNOWN = auto()
     MISS = auto()
     BODY = auto()

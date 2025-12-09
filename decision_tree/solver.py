@@ -1,7 +1,7 @@
 # solver.py
 import json
 import math
-from config import LAYOUT_FILE, GRID_SIZE, State
+from config import LAYOUT_FILE, GRID_SIZE, GridState
 from copy import deepcopy
 
 KILL_WEIGHT = 0.13
@@ -9,16 +9,16 @@ KILL_WEIGHT = 0.13
 class BattleAI:
     def __init__(self, layouts):
         self.layouts = layouts
-        self.board_state = [[State.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
         self.valid_moves = [[x, y] for x in range(GRID_SIZE) for y in range(GRID_SIZE)]
         self.heads_hit = 0
 
-    def update_state(self, x, y, result: State):
+    def update_state(self, x, y, result: GridState):
         self.board_state[x][y] = result
         if [x, y] in self.valid_moves:
             self.valid_moves.remove([x, y])
            
-        if result == State.HEAD:
+        if result == GridState.HEAD:
             self.heads_hit += 1
            
         remain_layouts = []
@@ -29,11 +29,11 @@ class BattleAI:
             is_body = target in layout['bodies']
            
             match = False
-            if result == State.MISS:
+            if result == GridState.MISS:
                 if not is_head and not is_body: match = True
-            elif result == State.BODY:
+            elif result == GridState.BODY:
                 if is_body: match = True
-            elif result == State.HEAD:
+            elif result == GridState.HEAD:
                 if is_head: match = True
 
             if match:
@@ -64,7 +64,7 @@ class BattleAI:
            
         if len(self.layouts) == 1:
             layout = self.layouts[0]
-            remaining_heads = [h for h in layout['heads'] if self.board_state[h[0]][h[1]] != State.HEAD]
+            remaining_heads = [h for h in layout['heads'] if self.board_state[h[0]][h[1]] != GridState.HEAD]
             if remaining_heads:
                 return remaining_heads[0]
             return None
@@ -109,7 +109,7 @@ class BattleAI:
            
         if len(self.layouts) == 1:
             layout = self.layouts[0]
-            remaining_heads = [h for h in layout['heads'] if self.board_state[h[0]][h[1]] != State.HEAD]
+            remaining_heads = [h for h in layout['heads'] if self.board_state[h[0]][h[1]] != GridState.HEAD]
             if remaining_heads:
                 return remaining_heads[0]
             return None
@@ -163,18 +163,18 @@ class BattleAI:
 
         for x, y in valid_moves:
             worst_case = 0
-            for result in [State.MISS, State.BODY, State.HEAD]:
-                new_heads_hit = heads_hit + (result == State.HEAD)
+            for result in [GridState.MISS, GridState.BODY, GridState.HEAD]:
+                new_heads_hit = heads_hit + (result == GridState.HEAD)
                 new_layouts = []
                 for layout in layouts:
                     is_head = [x, y] in layout['heads']
                     is_body = [x, y] in layout['bodies']
                     match = False
-                    if result == State.MISS:
+                    if result == GridState.MISS:
                         if not is_head and not is_body: match = True
-                    elif result == State.BODY:
+                    elif result == GridState.BODY:
                         if is_body: match = True
-                    elif result == State.HEAD:
+                    elif result == GridState.HEAD:
                         if is_head: match = True
                     if match:
                         new_layouts.append(layout)

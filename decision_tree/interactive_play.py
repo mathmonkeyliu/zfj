@@ -2,7 +2,7 @@
 import os
 import time
 
-from config import GRID_SIZE, State
+from config import GRID_SIZE, GridState
 from .solver import BattleAI, load_layouts
 
 # --- 颜色代码 ---
@@ -32,13 +32,13 @@ def draw_board(ai_inst, suggestion=None):
             if [x, y] == suggestion:
                 symbol = "?"
                 color = C_YELLOW
-            elif cell == State.MISS:
+            elif cell == GridState.MISS:
                 symbol = "■"
                 color = C_GRAY # Miss
-            elif cell == State.BODY:
+            elif cell == GridState.BODY:
                 symbol = "X"
                 color = C_GREEN # Body
-            elif cell == State.HEAD:
+            elif cell == GridState.HEAD:
                 symbol = "H"
                 color = C_RED # Head
            
@@ -83,11 +83,11 @@ def interactive_game():
        
         res_str = input(f"{C_BLUE}输入结果 (0/1/2) > {C_RESET}")
         if res_str == '0':
-            res = State.MISS
+            res = GridState.MISS
         elif res_str == '1':
-            res = State.BODY
+            res = GridState.BODY
         elif res_str == '2':
-            res = State.HEAD
+            res = GridState.HEAD
         ai.update_state(move[0], move[1], res)
         print(f"收到反馈 ({move[0]},{move[1]}) -> {res}。剩余可能性: {C_RED}{len(ai.layouts)}{C_RESET}")
 

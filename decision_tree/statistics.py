@@ -3,7 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 from .solver import BattleAI
-from config import State
+from config import GridState
 
 def load_all_layouts(file_path="all_layouts.jsonl"):
     layouts = []
@@ -25,11 +25,11 @@ def simulate_game(layout, all_layouts):
         
         x, y = move
         if [x, y] in layout['heads']:
-            result = State.HEAD
+            result = GridState.HEAD
         elif [x, y] in layout['bodies']:
-            result = State.BODY
+            result = GridState.BODY
         else:
-            result = State.MISS
+            result = GridState.MISS
         
         ai.update_state(x, y, result)
         steps += 1
