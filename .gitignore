@@ -1,6 +1,4 @@
 __pycache__/
-models/
-.cache/
+.venv/
 
 *.jsonl
-*.pth
