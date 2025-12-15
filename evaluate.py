@@ -13,14 +13,17 @@ from environment import BombPlanesEnv, load_layouts
 from id3 import ID3Agent
 from c45 import C45Agent
 from elim import ElimAgent
+from mcts import MCTSAgent, MCTSConfig
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "c45", "elim"], default="id3")
+    ap.add_argument("--method", choices=["id3", "c45", "elim", "mcts"], default="id3")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (defaults to config.LAYOUT_FILE).")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
+    ap.add_argument("--mcts-sims", type=int, default=None, help="MCTS: simulations per move (overrides mcts/config.py default).")
+    ap.add_argument("--mcts-depth", type=int, default=None, help="MCTS: max search depth (overrides mcts/config.py default).")
     args = ap.parse_args()
 
     # Candidate universe for the online algorithm: all layouts from file.
@@ -38,7 +41,29 @@ def main() -> None:
     elif args.method == "c45":
         agent = C45Agent.from_layouts(all_layouts)
     else:
-        agent = ElimAgent.from_layouts(all_layouts)
+        if args.method == "elim":
+            agent = ElimAgent.from_layouts(all_layouts)
+        else:
+            cfg = MCTSConfig()
+            if args.mcts_sims is not None:
+                cfg = MCTSConfig(
+                    num_simulations=int(args.mcts_sims),
+                    max_depth=cfg.max_depth,
+                    c_ucb=cfg.c_ucb,
+                    progressive_widening_k=cfg.progressive_widening_k,
+                    rollout_depth=cfg.rollout_depth,
+                    seed=cfg.seed,
+                )
+            if args.mcts_depth is not None:
+                cfg = MCTSConfig(
+                    num_simulations=cfg.num_simulations,
+                    max_depth=int(args.mcts_depth),
+                    c_ucb=cfg.c_ucb,
+                    progressive_widening_k=cfg.progressive_widening_k,
+                    rollout_depth=cfg.rollout_depth,
+                    seed=cfg.seed,
+                )
+            agent = MCTSAgent.from_layouts(all_layouts, cfg=cfg)
 
     env = BombPlanesEnv(layouts=all_layouts, reward_mode="sparse", illegal_action="raise", max_steps=500)
 

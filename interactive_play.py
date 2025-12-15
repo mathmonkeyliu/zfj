@@ -32,7 +32,7 @@ C_YELLOW = "\033[93m"  # suggestion
 C_BLUE = "\033[94m"  # frame
 
 
-Algo = Literal["id3", "c45", "elim"]
+Algo = Literal["id3", "c45", "elim", "mcts"]
 
 
 def clear_screen() -> None:
@@ -215,6 +215,13 @@ def _best_action_elim(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.
 def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
     layouts = load_layouts(layouts_file)
     outcomes, label_ids, labels = build_outcome_table(layouts)
+    mcts_agent = None
+    if algo == "mcts":
+        # 延迟导入，避免不需要时加载
+        from mcts import MCTSAgent, MCTSConfig
+
+        # 你可以通过修改 mcts/config.py 调参；这里直接用默认配置
+        mcts_agent = MCTSAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=MCTSConfig())
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -262,8 +269,11 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
                 a = _best_action_id3(outcomes, label_ids, cand_idx, unshot)
             elif algo == "c45":
                 a = _best_action_c45(outcomes, label_ids, cand_idx, unshot)
-            else:
+            elif algo == "elim":
                 a = _best_action_elim(outcomes, label_ids, cand_idx, unshot)
+            else:
+                assert mcts_agent is not None
+                a = mcts_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
             suggestion = divmod(int(a), GRID_SIZE)  # (row, col)
         calc_time = time.time() - start_time
 
@@ -325,7 +335,7 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
-    ap.add_argument("--algo", choices=["id3", "c45", "elim"], default=None, help="Algorithm to use (or choose interactively).")
+    ap.add_argument("--algo", choices=["id3", "c45", "elim", "mcts"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
     args = ap.parse_args()
 
@@ -335,6 +345,7 @@ def main() -> None:
         print("  1) ID3 (信息增益)")
         print("  2) C4.5 (增益率)")
         print("  3) 排除法 (minimax 最坏情况下剩余机头分布数最小)")
+        print("  4) MCTS (POMCP：对候选布局随机取样做树搜索)")
         try:
             c = input("输入 1/2/3 > ").strip()
         except EOFError:
@@ -344,8 +355,10 @@ def main() -> None:
             algo = "id3"
         elif c == "2":
             algo = "c45"
-        else:
+        elif c == "3":
             algo = "elim"
+        else:
+            algo = "mcts"
     else:
         algo = args.algo  # type: ignore[assignment]
 

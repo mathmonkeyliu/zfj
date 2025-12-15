@@ -102,6 +102,7 @@ python evaluate.py --method id3
 - `id3`：信息增益
 - `c45`：增益率
 - `elim`：排除法（minimax：在 0/1/2 三种反馈的最坏情况下，让剩余机头分布种类数最小；当只剩 1 种机头分布时直接打机头）
+- `mcts`：MCTS（POMCP：每次 simulation 从候选布局中随机取样，用树搜索估计剩余步数期望）
 
 ## AI性能
 
