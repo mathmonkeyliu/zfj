@@ -1,3 +1,10 @@
+[![GitHub Repo](https://img.shields.io/badge/GitHub-mathmonkeyliu%2Fzfj-181717?style=flat-square&logo=github)](https://github.com/mathmonkeyliu/zfj)
+[![Stars](https://img.shields.io/github/stars/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/stargazers)
+[![Forks](https://img.shields.io/github/forks/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/network/members)
+[![Issues](https://img.shields.io/github/issues/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/commits/main)
+[![Python](https://img.shields.io/badge/Python-%3E%3D3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://github.com/mathmonkeyliu/zfj)
+
 # 炸飞机/飞机大战 游戏AI
 
 **炸飞机**（又称**飞机大战**）游戏的AI。
@@ -69,7 +76,7 @@ python layout_generater.py
 与 AI 进行交互式游戏（你提供每次打击结果 0/1/2）：
 
 ```bash
-python interactive_play.py
+python interactive_play.py --argo id3
 ```
 
 游戏界面说明：
@@ -79,9 +86,9 @@ python interactive_play.py
 - `?` (黄色) = AI 建议的下一步打击位置
 
 输入结果：
-- `0` = 未击中 (Miss)
-- `1` = 击中机身 (Body)
-- `2` = 击中机头 (Head - 击落!)
+- `0` = 未击中
+- `1` = 击中机身
+- `2` = 击中机头
 
 ### 3. 性能统计
 遍历布局评估一种方法在所有布局下炸掉全部机头的步数，并画柱状图（标出均值/中位数）：
@@ -98,9 +105,15 @@ python evaluate.py --method id3
 ![ID3](evaluation_id3.png)
 中位数为**13.00**
 
+### C4.5
+![C4.5](evaluation_c45.png)
+中位数为**23.00**
+
+C4.5性能差了很多
+
 ### 其它
 
-欢迎读者设计其它方法超越我的性能。
+欢迎读者设计其它方法超越我的性能。可以通过[mathmonkeyliu@outlook.com](mailto:mathmonkeyliu@outlook.com)联系我。
 
 ## 作者
 
