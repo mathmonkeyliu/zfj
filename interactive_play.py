@@ -32,7 +32,7 @@ C_YELLOW = "\033[93m"  # suggestion
 C_BLUE = "\033[94m"  # frame
 
 
-Algo = Literal["id3", "c45"]
+Algo = Literal["id3", "c45", "elim"]
 
 
 def clear_screen() -> None:
@@ -159,6 +159,59 @@ def _best_action_c45(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.n
     return best_a
 
 
+def _best_action_elim(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.ndarray, unshot: np.ndarray) -> int:
+    """
+    排除法（minimax）：
+    对每个未点格子 a，分别假设反馈 v∈{0,1,2}，过滤候选后看剩余“机头分布(label)”的种类数。
+    取三种反馈中的最坏情况（最大值），选择让该最坏情况最小的 a。
+
+    次级排序：expected_unique_labels 更小；再其次：HEAD 概率更高；最后：动作 id 更小。
+    """
+    y = label_ids[cand_idx]
+    uniq, inv = np.unique(y, return_inverse=True)
+    m = int(uniq.size)
+
+    features = np.flatnonzero(unshot)
+    best_a = int(features[0])
+    best_worst = 1 << 30
+    best_expected = float("inf")
+    best_head_prob = -1.0
+
+    inv64 = inv.astype(np.int64, copy=False)
+    for a in features:
+        col = outcomes[cand_idx, int(a)].astype(np.int64, copy=False)
+        combo = col * m + inv64
+        cont = np.bincount(combo, minlength=3 * m).reshape(3, m)
+        outcome_counts = cont.sum(axis=1).astype(np.float64, copy=False)
+        n = float(outcome_counts.sum())
+        if n <= 0:
+            continue
+
+        uniq_per_outcome = (cont > 0).sum(axis=1).astype(np.float64, copy=False)
+        worst = int(uniq_per_outcome.max())
+        probs = outcome_counts / n
+        expected = float((probs * uniq_per_outcome).sum())
+        head_prob = float(probs[2])
+
+        if (
+            (worst < best_worst)
+            or (worst == best_worst and expected < best_expected - 1e-12)
+            or (worst == best_worst and np.isclose(expected, best_expected) and head_prob > best_head_prob + 1e-12)
+            or (
+                worst == best_worst
+                and np.isclose(expected, best_expected)
+                and np.isclose(head_prob, best_head_prob)
+                and int(a) < best_a
+            )
+        ):
+            best_worst = worst
+            best_expected = expected
+            best_head_prob = head_prob
+            best_a = int(a)
+
+    return best_a
+
+
 def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
     layouts = load_layouts(layouts_file)
     outcomes, label_ids, labels = build_outcome_table(layouts)
@@ -207,8 +260,10 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
                 break
             if algo == "id3":
                 a = _best_action_id3(outcomes, label_ids, cand_idx, unshot)
-            else:
+            elif algo == "c45":
                 a = _best_action_c45(outcomes, label_ids, cand_idx, unshot)
+            else:
+                a = _best_action_elim(outcomes, label_ids, cand_idx, unshot)
             suggestion = divmod(int(a), GRID_SIZE)  # (row, col)
         calc_time = time.time() - start_time
 
@@ -270,7 +325,7 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
-    ap.add_argument("--algo", choices=["id3", "c45"], default=None, help="Algorithm to use (or choose interactively).")
+    ap.add_argument("--algo", choices=["id3", "c45", "elim"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
     args = ap.parse_args()
 
@@ -279,12 +334,18 @@ def main() -> None:
         print("请选择算法：")
         print("  1) ID3 (信息增益)")
         print("  2) C4.5 (增益率)")
+        print("  3) 排除法 (minimax 最坏情况下剩余机头分布数最小)")
         try:
-            c = input("输入 1/2 > ").strip()
+            c = input("输入 1/2/3 > ").strip()
         except EOFError:
             print("\nEOF received, exiting.")
             return
-        algo = "id3" if c == "1" else "c45"
+        if c == "1":
+            algo = "id3"
+        elif c == "2":
+            algo = "c45"
+        else:
+            algo = "elim"
     else:
         algo = args.algo  # type: ignore[assignment]
 

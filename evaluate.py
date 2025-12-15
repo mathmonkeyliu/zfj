@@ -12,11 +12,12 @@ import numpy as np
 from environment import BombPlanesEnv, load_layouts
 from id3 import ID3Agent
 from c45 import C45Agent
+from elim import ElimAgent
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "c45"], default="id3")
+    ap.add_argument("--method", choices=["id3", "c45", "elim"], default="id3")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (defaults to config.LAYOUT_FILE).")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
@@ -34,8 +35,10 @@ def main() -> None:
 
     if args.method == "id3":
         agent = ID3Agent.from_layouts(all_layouts)
-    else:
+    elif args.method == "c45":
         agent = C45Agent.from_layouts(all_layouts)
+    else:
+        agent = ElimAgent.from_layouts(all_layouts)
 
     env = BombPlanesEnv(layouts=all_layouts, reward_mode="sparse", illegal_action="raise", max_steps=500)
 
@@ -59,7 +62,15 @@ def main() -> None:
             rate = done / elapsed if elapsed > 0 else 0.0
             eta = (total - done) / rate if rate > 0 else float("inf")
             eta_str = f"{eta:6.1f}s" if np.isfinite(eta) else "  inf s"
-            msg = f"\r[{bar}] {frac*100:6.2f}%  {done}/{total}  elapsed {elapsed:6.1f}s  eta {eta_str}"
+            # running stats
+            sofar = np.asarray(steps_list, dtype=np.float64)
+            mean_sofar = float(np.mean(sofar)) if sofar.size else 0.0
+            median_sofar = float(np.median(sofar)) if sofar.size else 0.0
+            msg = (
+                f"\r[{bar}] {frac*100:6.2f}%  {done}/{total}  "
+                f"mean {mean_sofar:6.2f}  median {median_sofar:6.2f}  "
+                f"elapsed {elapsed:6.1f}s  eta {eta_str}"
+            )
             sys.stdout.write(msg)
             sys.stdout.flush()
             last_print_t = now

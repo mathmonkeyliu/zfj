@@ -50,6 +50,7 @@ zfj/
 ├── environment.py         # 强化学习环境（step/reset/obs/action_mask）
 ├── id3/                   # 在线 ID3（每步信息增益选点）
 ├── c45/                   # 在线 C4.5（每步增益率选点）
+├── elim/                  # 在线 排除法（minimax：最坏情况下剩余机头分布数最小）
 ├── interactive_play.py    # 交互程序
 └── evaluate.py            # 遍历所有布局评估并画柱状图（均值/中位数）
 ```
@@ -76,7 +77,7 @@ python layout_generater.py
 与 AI 进行交互式游戏（你提供每次打击结果 0/1/2）：
 
 ```bash
-python interactive_play.py --argo id3
+python interactive_play.py --algo id3
 ```
 
 游戏界面说明：
@@ -96,6 +97,11 @@ python interactive_play.py --argo id3
 ```bash
 python evaluate.py --method id3
 ```
+
+可选方法：
+- `id3`：信息增益
+- `c45`：增益率
+- `elim`：排除法（minimax：在 0/1/2 三种反馈的最坏情况下，让剩余机头分布种类数最小；当只剩 1 种机头分布时直接打机头）
 
 ## AI性能
 
