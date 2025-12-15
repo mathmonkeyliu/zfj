@@ -1,5 +1,6 @@
 __pycache__/
 models/
+.cache/
 
 *.jsonl
 *.pth

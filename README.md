@@ -16,10 +16,11 @@
 #### 1. 飞机布局
 - 每方有 **3 架相同的飞机**
 - 飞机形状为"士"字形，共占据 **10 个格子**（包括 1 个机头、9 个机身）
-- 飞机形状说明：如果机头坐标为 (0, 0)，则其他 9 个格子（机身）的相对坐标为：
-  - 第一行：(-2, -1), (-1, -1), (0, -1), (1, -1), (2, -1)
-  - 第二行：(0, -2)
-  - 第三行：(-1, -3), (0, -3), (1, -3)
+- 坐标约定：使用矩阵坐标 (x, y)，其中 **x 表示行(row)**、**y 表示列(col)**
+- 飞机形状说明（Direction.UP）：如果机头坐标为 (0, 0)，则其他 9 个格子（机身）的相对坐标 (dx, dy) 为：
+  - 第一行：(-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2)
+  - 第二行：(-2, 0)
+  - 第三行：(-3, -1), (-3, 0), (-3, 1)
 - 飞机可以朝向上、下、左、右四个方向放置
 - 飞机不能重叠，且不能超出 10×10 的方格表
 
@@ -34,15 +35,14 @@
 
 ```
 zfj/
-├── config.py                    # 游戏配置（网格大小、飞机形状等）
-├── layout_generater.py          # 生成所有可能的飞机布局
-├── main.py
-├── all_layouts.jsonl           # 所有合法布局数据
-└── decision_tree/
-    ├── __init__.py
-    ├── solver.py               # AI 核心算法（最小熵搜索）
-    ├── interactive_play.py    # 交互式游戏界面
-    └── statistics.py          # 性能统计与分析
+├── config.py              # 游戏配置（网格大小、飞机形状、坐标约定等）
+├── layout_generater.py    # 生成所有合法布局（layouts.jsonl）
+├── layouts.jsonl          # 所有合法布局数据（jsonl）
+├── environment.py         # 强化学习环境（step/reset/obs/action_mask）
+├── id3/                   # 在线 ID3（每步信息增益选点）
+├── c45/                   # 在线 C4.5（每步增益率选点）
+├── interactive_play.py    # 根目录交互程序（你提供反馈 0/1/2）
+└── evaluate.py            # 遍历所有布局评估并画柱状图（均值/中位数）
 ```
 
 ## 安装
@@ -70,10 +70,10 @@ python layout_generater.py
 
 ### 2. 交互式游戏
 
-与 AI 进行交互式游戏，AI 会给出建议的打击坐标，您需要输入打击结果：
+与 AI 进行交互式游戏（你提供每次打击结果 0/1/2）：
 
 ```bash
-python -m decision_tree.interactive_play
+python interactive_play.py
 ```
 
 游戏界面说明：
@@ -88,18 +88,11 @@ python -m decision_tree.interactive_play
 - `2` = 击中机头 (Head - 击落!)
 
 ### 3. 性能统计
-
-运行统计测试，评估 AI 在不同布局下的表现：
+遍历布局评估一种方法在所有布局下炸掉全部机头的步数，并画柱状图（标出均值/中位数）：
 
 ```bash
-python -m decision_tree.statistics
+python evaluate.py --method id3
 ```
-
-这将：
-- 随机采样布局进行游戏模拟
-- 统计平均步数、中位数、标准差等指标
-- 生成可视化图表（直方图、CDF、箱线图等）
-- 保存结果到 `statistics_results.png`
 
 ## AI 算法说明
 
@@ -121,8 +114,6 @@ python -m decision_tree.statistics
 
 ## 致谢
 致敬我的同学[鲁铭泽](https://github.com/maverickxone)，守护了人类最后的荣光！
-
-![人类最后的荣光](last_dance.png)
 
 ## 作者
 

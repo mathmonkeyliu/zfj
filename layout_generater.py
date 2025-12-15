@@ -4,11 +4,24 @@ import itertools
 from config import GRID_SIZE, LAYOUT_FILE, RELATIVE_COORDS, Direction
 
 
-def rotate_point(x, y, direction):
-    if direction == Direction.UP: return x, y
-    if direction == Direction.DOWN: return x, -y
-    if direction == Direction.LEFT: return y, x
-    if direction == Direction.RIGHT: return -y, x
+def rotate_point(dx: int, dy: int, direction: Direction) -> tuple[int, int]:
+    """
+    Rotate an offset (dx, dy) where:
+    - dx = row offset
+    - dy = col offset
+    under the given direction, using matrix coordinates (row down, col right).
+    """
+    if direction == Direction.UP:
+        return dx, dy
+    if direction == Direction.DOWN:
+        return -dx, -dy
+    if direction == Direction.LEFT:
+        # 90 deg CCW: (row, col) -> (col, -row)
+        return dy, -dx
+    if direction == Direction.RIGHT:
+        # 90 deg CW: (row, col) -> (-col, row)
+        return -dy, dx
+    raise ValueError(f"Unknown direction: {direction}")
 
 
 def get_valid_single_planes():
@@ -17,9 +30,9 @@ def get_valid_single_planes():
         body_points = []
         valid = True
         head_point = (head_x, head_y)
-        for relative_x, relative_y in RELATIVE_COORDS:
-            relative_x, relative_y = rotate_point(relative_x, relative_y, d)
-            absolute_x, absolute_y = head_x + relative_x, head_y + relative_y
+        for dx, dy in RELATIVE_COORDS:
+            dx, dy = rotate_point(dx, dy, d)
+            absolute_x, absolute_y = head_x + dx, head_y + dy
             if not (0 <= absolute_x < GRID_SIZE and 0 <= absolute_y < GRID_SIZE):
                 valid = False
                 break
