@@ -11,11 +11,11 @@ import numpy as np
 
 from config import GRID_SIZE, GridState
 from environment import BombPlanesEnv, build_outcome_table
-from monkey.config import MonkeyConfig
+from minimax_ab_id3_topk.config import MiniMaxABID3TopKConfig
 
 
 class _Progress:
-    def __init__(self, *, cfg: MonkeyConfig) -> None:
+    def __init__(self, *, cfg: MiniMaxABID3TopKConfig) -> None:
         self.cfg = cfg
         self.t0 = time.time()
         self.last_print = self.t0
@@ -45,18 +45,18 @@ class _Progress:
         dt = max(1e-9, now - self.last_print)
         nps = dv / dt
 
-        # Dynamic rough estimate of total nodes:
+        # Dynamic rough estimate of total nodes (user-requested):
         # est_total_nodes ≈ (breadth=top_k*3)^(depth=avg_steps)
         breadth = float(max(1, int(self.cfg.top_k) * 3))
         depth_est = max(avg_steps, float(depth_now) / 2.0)
-        est_total = int(min(1_000_000_000, max(1.0, breadth**depth_est)))
+        est_total = int(min(1_000_000_000, max(1.0, breadth ** depth_est)))
 
         frac = min(1.0, visited / max(1, est_total))
-        w = 24  # fixed width
+        w = 24  # fixed width; config removed
         filled = int(w * frac)
         bar = "=" * filled + " " * (w - filled)
         msg = (
-            f"\r[monkey {bar}] "
+            f"\r[ab_id3k {bar}] "
             f"visited {visited} /~{est_total}  tt {tt_size} hits {tt_hits}  "
             f"avg_depth {avg_steps:5.2f}  cur_depth {float(depth_now)/2.0:5.2f}  "
             f"{nps:7.0f} n/s  {elapsed:6.1f}s"
@@ -71,8 +71,7 @@ def _entropy_from_counts(counts: np.ndarray) -> float:
     total = float(counts.sum())
     if total <= 0:
         return 0.0
-    # counts are "number of layouts" per head-pattern label under current candidates.
-    p = counts[counts > 0].astype(np.float64, copy=False) / total
+    p = counts[counts > 0].astype(np.float64) / total
     return float(-(p * np.log2(p)).sum())
 
 
@@ -95,11 +94,8 @@ def _id3_topk_actions(
     k: int,
 ) -> np.ndarray:
     """
-    Select top-k actions by ID3 information gain (entropy reduction).
-    
-    Returns actions sorted by: (-gain, -head_prob, action_id)
-    - Prioritizes actions with highest entropy reduction (best for MIN player)
-    - Tie-breaking: prefer higher head probability, then smaller action id
+    Compute ID3 information-gain for each unshot action under current candidates, return top-k action ids.
+    Tie-break: higher head_prob, then smaller action id.
     """
     feats = np.flatnonzero(unshot)
     if feats.size == 0:
@@ -110,8 +106,8 @@ def _id3_topk_actions(
     y = label_ids[cand_idx]
     uniq, inv = np.unique(y, return_inverse=True)
     m = int(uniq.size)
-    # H(Y): P(Y=label) = (#layouts in this head-pattern)/(#remaining layouts)
-    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False)) if m > 0 else 0.0
+    # When m==1, IG is 0 for all; we fall back to head_prob.
+    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m)) if m > 0 else 0.0
 
     inv64 = inv.astype(np.int64, copy=False)
     gains = np.empty((feats.size,), dtype=np.float64)
@@ -167,9 +163,9 @@ INF = 10**9
 
 
 @dataclass
-class MonkeyAgent:
+class MiniMaxABID3TopKAgent:
     """
-    Monkey: minimax + alpha-beta pruning, where branching on MIN actions is limited by ID3 top-k.
+    MiniMax + alpha-beta pruning, where branching on MIN actions is limited by ID3 top-k.
 
     Game model (adversarial observation):
     - State is a belief set over layouts (cand_idx) plus unshot cells plus heads_hit.
@@ -178,13 +174,13 @@ class MonkeyAgent:
       to maximize remaining steps to termination.
     Terminal conditions (value returns "remaining steps"):
     - If heads_hit==3: 0.
-    - If belief collapses to a single head-configuration label: remaining_heads.
+    - If belief collapses to a single head-configuration label: remaining_heads (count of unshot heads).
     """
 
     outcomes: np.ndarray  # (N,100) uint8 in {0,1,2}
     label_ids: np.ndarray  # (N,) int32
     labels: list[tuple[tuple[int, int], ...]]  # id -> canonical heads (3 tuples)
-    cfg: MonkeyConfig = MonkeyConfig()
+    cfg: MiniMaxABID3TopKConfig = MiniMaxABID3TopKConfig()
     _policy_index: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
     _cache_loaded: bool = field(default=False, init=False, repr=False)
     _cache_nodes: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
@@ -266,13 +262,13 @@ class MonkeyAgent:
         layouts: list[dict[str, Any]],
         *,
         top_k: int = 8,
-        cfg: MonkeyConfig | None = None,
-    ) -> "MonkeyAgent":
+        cfg: MiniMaxABID3TopKConfig | None = None,
+    ) -> "MiniMaxABID3TopKAgent":
         outcomes, label_ids, labels = build_outcome_table(layouts)
         if cfg is None:
-            cfg = MonkeyConfig(top_k=int(top_k))
+            cfg = MiniMaxABID3TopKConfig(top_k=int(top_k))
         else:
-            cfg = MonkeyConfig(
+            cfg = MiniMaxABID3TopKConfig(
                 top_k=int(top_k),
                 progress_enabled=cfg.progress_enabled,
                 progress_every_sec=cfg.progress_every_sec,
@@ -280,7 +276,7 @@ class MonkeyAgent:
                 cache_enabled=cfg.cache_enabled,
                 cache_dir=cfg.cache_dir,
             )
-        return MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+        return MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     def _terminal_remaining_heads(self, cand_idx: np.ndarray, unshot: np.ndarray) -> int | None:
         possible_labels = np.unique(self.label_ids[cand_idx])
@@ -294,7 +290,7 @@ class MonkeyAgent:
                 rem += 1
         return int(rem)
 
-    def _search_value(
+    def _solve_min_state(
         self,
         cand_idx: np.ndarray,
         unshot: np.ndarray,
@@ -304,33 +300,46 @@ class MonkeyAgent:
         tt: dict[tuple[int, int, bytes, bytes], int],
         counters: dict[str, Any],
         *,
+        depth_left: int,
         depth_now: int,
         progress: _Progress | None,
-    ) -> int:
+    ) -> tuple[int, dict[str, Any] | None]:
         """
-        Pure minimax search with alpha-beta pruning and full TT caching.
-        Returns only the value, no policy tree construction.
-        
-        Value: remaining steps to complete (lower is better for player/MIN).
-        
-        This is the fast path for finding optimal values with maximum TT reuse.
+        Solve a MIN belief-state exactly (within ID3 top-k branching) and optionally build a *policy tree*
+        of the first `depth_left` plies:
+        - MIN node stores one best action
+        - then has up to 3 OBS children (0/1/2) (only those that are possible)
+        - each OBS child leads to the next MIN node (unique best action), recursively.
         """
-        # Terminal checks
+        # Terminal checks:
+        # - All 3 heads hit
+        # - Belief collapses to exactly one head-configuration label: remaining steps = remaining head cells
+        state_key = _state_cache_key(heads_hit=int(heads_hit), cand_idx=cand_idx, unshot=unshot, top_k=int(self.cfg.top_k))
         if heads_hit >= 3:
-            return 0
+            return (
+                0,
+                {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": 0}
+                if depth_left > 0
+                else None,
+            )
         if cand_idx.size == 0 or (not unshot.any()):
-            return INF
+            return (
+                INF,
+                {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
+                if depth_left > 0
+                else None,
+            )
 
         rem = self._terminal_remaining_heads(cand_idx, unshot)
         if rem is not None:
-            return int(rem)
-
-        # TT lookup (always use cache for value search)
-        key = (int(heads_hit), int(cand_idx.size), _hash_cand_idx(cand_idx), _pack_unshot(unshot))
-        cached = tt.get(key)
-        if cached is not None:
-            counters["tt_hits"] += 1
-            return int(cached)
+            node = {
+                "kind": "MIN",
+                "state_key": state_key,
+                "terminal": True,
+                "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)},
+                "value": int(rem),
+            }
+            return int(rem), node if depth_left > 0 else None
 
         counters["visited"] += 1
         counters["depth_sum"] = float(counters.get("depth_sum", 0.0)) + float(depth_now)
@@ -338,13 +347,25 @@ class MonkeyAgent:
         if progress is not None:
             progress.update(counters=counters, tt_size=len(tt), depth_now=int(depth_now))
 
-        # ID3 top-k actions (entropy reduction ordering)
+        key = (int(heads_hit), int(cand_idx.size), _hash_cand_idx(cand_idx), _pack_unshot(unshot))
+        cached = tt.get(key)
+        if cached is not None and depth_left <= 0:
+            counters["tt_hits"] += 1
+            return int(cached), None
+
         actions = _id3_topk_actions(self.outcomes, self.label_ids, cand_idx, unshot, k=int(self.cfg.top_k))
         if actions.size == 0:
-            tt[key] = INF
-            return INF
+            return (
+                INF,
+                {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
+                if depth_left > 0
+                else None,
+            )
 
         best_v = INF
+        best_a = int(actions[0])
+
+        # alpha/beta bounds for child state values: if child returns t, total is 1+t.
         child_alpha = alpha - 1
         child_beta = beta - 1
 
@@ -355,165 +376,100 @@ class MonkeyAgent:
             unshot2[int(a)] = False
             col = self.outcomes[cand_idx, int(a)]
 
-            # MAX aggregation: find max over outcomes
-            worst_child = -INF
-            
-            # Order outcomes by remaining entropy (high→low) for better pruning
-            outcome_candidates: list[tuple[float, int, np.ndarray]] = []
+            # MAX chooses worst outcome among possible {0/1/2}
+            worst_child = -1
+
+            # Heuristic ordering for alpha-beta effectiveness:
+            # Explore MAX outcomes likely to be "worse" first (more remaining ambiguity).
+            # We use unique-label count as a proxy for remaining steps.
+            outcome_candidates: list[tuple[int, int, int]] = []  # (proxy, v, cand2_size)
             for v in (0, 1, 2):
                 mask = col == v
                 if not bool(mask.any()):
                     continue
                 cand2 = cand_idx[mask]
-                y = self.label_ids[cand2]
-                uniq, inv = np.unique(y, return_inverse=True)
-                entropy_after = _entropy_from_counts(np.bincount(inv, minlength=int(uniq.size)).astype(np.float64, copy=False))
-                outcome_candidates.append((float(entropy_after), int(v), cand2))
-            
-            outcome_candidates.sort(key=lambda t: (t[0], t[2].size), reverse=True)
+                uniq_labels = int(np.unique(self.label_ids[cand2]).size)
+                outcome_candidates.append((uniq_labels, int(v), int(cand2.size)))
+            # sort by proxy desc, then size desc, then v (stable)
+            outcome_candidates.sort(key=lambda t: (t[0], t[2], t[1]), reverse=True)
 
-            max_alpha = child_alpha
-            for _, v, cand2 in outcome_candidates:
+            for _, v, _sz in outcome_candidates:
+                mask = col == v
+                if not bool(mask.any()):
+                    continue
+                cand2 = cand_idx[mask]
                 heads2 = heads_hit + (1 if v == 2 else 0)
-                t_child = self._search_value(
+                t_child, _child_tree = self._solve_min_state(
                     cand2,
                     unshot2,
                     heads2,
-                    max_alpha,
+                    child_alpha,
                     child_beta,
                     tt,
                     counters,
+                    depth_left=max(0, depth_left - 2),
                     depth_now=int(depth_now) + 2,
                     progress=progress,
                 )
-                worst_child = max(worst_child, int(t_child))
+                if t_child > worst_child:
+                    worst_child = int(t_child)
+
+                # alpha-beta pruning for the MAX aggregation
                 if worst_child >= child_beta:
                     break
-                max_alpha = max(max_alpha, worst_child)
-                
-            val = 1 + int(worst_child)
-            if val < best_v:
-                best_v = int(val)
-                if best_v <= alpha:
-                    break
-                if best_v < beta:
-                    beta = best_v
-                    child_beta = beta - 1
+                if worst_child > child_alpha:
+                    child_alpha = worst_child
 
-        tt[key] = int(best_v)
-        return int(best_v)
-
-    def _build_policy_tree(
-        self,
-        cand_idx: np.ndarray,
-        unshot: np.ndarray,
-        heads_hit: int,
-        tt: dict[tuple[int, int, bytes, bytes], int],
-        counters: dict[str, Any],
-        *,
-        depth_left: int,
-        depth_now: int,
-        progress: _Progress | None,
-    ) -> tuple[int, dict[str, Any]]:
-        """
-        Build policy tree for the best action path, using TT values for guidance.
-        This assumes _search_value has already populated the TT.
-        
-        Returns: (value, policy_tree_node)
-        """
-        state_key = _state_cache_key(heads_hit=int(heads_hit), cand_idx=cand_idx, unshot=unshot, top_k=int(self.cfg.top_k))
-        
-        # Terminal states
-        if heads_hit >= 3:
-            return 0, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": 0}
-        if cand_idx.size == 0 or (not unshot.any()):
-            return INF, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
-        
-        rem = self._terminal_remaining_heads(cand_idx, unshot)
-        if rem is not None:
-            return int(rem), {
-                "kind": "MIN",
-                "state_key": state_key,
-                "terminal": True,
-                "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)},
-                "value": int(rem),
-            }
-        
-        if depth_left <= 0:
-            # No tree needed, return value from TT
-            key = (int(heads_hit), int(cand_idx.size), _hash_cand_idx(cand_idx), _pack_unshot(unshot))
-            val = tt.get(key, INF)
-            return int(val), {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": int(val)}
-        
-        # Find best action by evaluating all top-k actions (using TT values)
-        actions = _id3_topk_actions(self.outcomes, self.label_ids, cand_idx, unshot, k=int(self.cfg.top_k))
-        if actions.size == 0:
-            return INF, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
-        
-        best_v = INF
-        best_a = int(actions[0])
-        
-        for a in actions:
-            if not bool(unshot[int(a)]):
-                continue
-            unshot2 = unshot.copy()
-            unshot2[int(a)] = False
-            col = self.outcomes[cand_idx, int(a)]
-            
-            # Evaluate MAX over outcomes using TT
-            worst_child = -INF
-            for v in (0, 1, 2):
-                mask = col == v
-                if not bool(mask.any()):
-                    continue
-                cand2 = cand_idx[mask]
-                heads2 = heads_hit + (1 if v == 2 else 0)
-                
-                # Use TT to get child value (should already be cached)
-                child_key = (int(heads2), int(cand2.size), _hash_cand_idx(cand2), _pack_unshot(unshot2))
-                t_child = tt.get(child_key)
-                if t_child is None:
-                    # Fallback: search if not in TT (shouldn't happen if _search_value ran first)
-                    t_child = self._search_value(cand2, unshot2, heads2, -INF, INF, tt, counters, depth_now=int(depth_now)+2, progress=progress)
-                worst_child = max(worst_child, int(t_child))
-            
             val = 1 + int(worst_child)
             if val < best_v:
                 best_v = int(val)
                 best_a = int(a)
-        
-        # Build tree for the best action only
+
+            if best_v <= alpha:
+                break
+            if best_v < beta:
+                beta = best_v
+                child_beta = beta - 1
+
+        tt[key] = int(best_v)
+        if depth_left <= 0:
+            return int(best_v), None
+
+        # Build *policy tree* for the unique best action only (3 outcomes),
+        # while preserving alpha-beta during best-action search above.
+        # This matches: MIN has unique choice; then 0/1/2; then each leads to unique MIN choice.
         unshot2 = unshot.copy()
         unshot2[int(best_a)] = False
         col = self.outcomes[cand_idx, int(best_a)]
         best_outcomes: list[dict[str, Any]] = []
-        
         for v in (0, 1, 2):
             mask = col == v
             if not bool(mask.any()):
                 continue
             cand2 = cand_idx[mask]
             heads2 = heads_hit + (1 if v == 2 else 0)
-            
-            # Recursively build tree for child
-            t_child, child_tree = self._build_policy_tree(
+            t_child, child_tree = self._solve_min_state(
                 cand2,
                 unshot2,
                 heads2,
+                -10**9,
+                10**9,
                 tt,
                 counters,
                 depth_left=max(0, depth_left - 2),
                 depth_now=int(depth_now) + 2,
                 progress=progress,
             )
-            best_outcomes.append({
-                "kind": "OBS",
-                "obs": int(v),
-                "meta": {"cand": int(cand2.size), "heads_hit": int(heads2)},
-                "value": int(1 + int(t_child)),
-                "child": child_tree,
-            })
-        
+            best_outcomes.append(
+                {
+                    "kind": "OBS",
+                    "obs": int(v),
+                    "meta": {"cand": int(cand2.size), "heads_hit": int(heads2)},
+                    "value": int(1 + int(t_child)),
+                    "child": child_tree,
+                }
+            )
+
         node = {
             "kind": "MIN",
             "state_key": state_key,
@@ -528,16 +484,16 @@ class MonkeyAgent:
         if not unshot_actions.any():
             raise ValueError("No available actions.")
 
-        # Cache lookup
+        # cache lookup
         cache_key = _state_cache_key(heads_hit=int(heads_hit), cand_idx=cand_idx, unshot=unshot_actions, top_k=int(self.cfg.top_k))
         self._load_cache_once()
 
-        # Fast path: check in-memory policy index
+        # 1) in-memory policy index (fast path)
         n = self._policy_index.get(cache_key)
         if isinstance(n, dict) and ("best_action" in n):
             return int(n["best_action"])
 
-        # Shortcut: if only one head-configuration remains, shoot remaining heads
+        # Shortcut: if only one head-set label remains, directly shoot remaining heads.
         possible_labels = np.unique(self.label_ids[cand_idx])
         if possible_labels.size == 1:
             heads = self.labels[int(possible_labels[0])]
@@ -546,16 +502,12 @@ class MonkeyAgent:
                 if bool(unshot_actions[a]):
                     return int(a)
 
-        # Two-phase search:
-        # Phase 1: Pure value search with full TT caching
-        # Phase 2: Build policy tree only along best path (if needed)
-        
+        # Search: evaluate each candidate action (ID3 top-k) by minimax value.
         tt: dict[tuple[int, int, bytes, bytes], int] = {}
         counters: dict[str, Any] = {"visited": 0, "tt_hits": 0, "depth_sum": 0.0, "depth_cnt": 0}
         progress = _Progress(cfg=self.cfg) if bool(self.cfg.progress_enabled) else None
 
-        # Phase 1: Search for optimal value (TT is heavily reused)
-        v = self._search_value(
+        v, policy_tree = self._solve_min_state(
             cand_idx=cand_idx,
             unshot=unshot_actions,
             heads_hit=int(heads_hit),
@@ -563,35 +515,24 @@ class MonkeyAgent:
             beta=INF,
             tt=tt,
             counters=counters,
+            depth_left=int(self.cfg.tree_log_depth),
             depth_now=0,
             progress=progress,
         )
 
         if bool(self.cfg.progress_enabled):
+            # final line
             avg_steps = (float(counters.get("depth_sum", 0.0)) / max(1, int(counters.get("depth_cnt", 1)))) / 2.0
             print(
-                f"\r[monkey done] visited {int(counters['visited'])}  tt {len(tt)} hits {int(counters['tt_hits'])}  "
+                f"\r[ab_id3k done] visited {int(counters['visited'])}  tt {len(tt)} hits {int(counters['tt_hits'])}  "
                 f"avg_depth {avg_steps:5.2f}  value {int(v)}",
                 flush=True,
             )
 
-        # Phase 2: Build policy tree (only if tree_log_depth > 0)
-        policy_tree = None
-        if int(self.cfg.tree_log_depth) > 0:
-            _, policy_tree = self._build_policy_tree(
-                cand_idx=cand_idx,
-                unshot=unshot_actions,
-                heads_hit=int(heads_hit),
-                tt=tt,
-                counters=counters,
-                depth_left=int(self.cfg.tree_log_depth),
-                depth_now=0,
-                progress=None,  # No progress bar for tree building
-            )
-
         best_a = int(policy_tree["best_action"]) if isinstance(policy_tree, dict) and ("best_action" in policy_tree) else int(np.flatnonzero(unshot_actions)[0])
+        best_v = int(v)
 
-        # Index and cache policy tree for reuse
+        # index in-memory policy tree for reuse in subsequent steps (within saved depth)
         self._index_policy_tree(policy_tree if isinstance(policy_tree, dict) else None)
         self._save_cache()
 
@@ -632,3 +573,5 @@ class MonkeyAgent:
                 break
 
         return steps
+
+
