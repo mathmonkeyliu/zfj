@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 import sys
@@ -47,7 +48,8 @@ def main() -> None:
     elif args.method == "c45":
         agent = C45Agent.from_layouts(all_layouts)
     elif args.method == "ab_id3k":
-        cfg = MiniMaxABID3TopKConfig()
+        # Silence search-node progress output during evaluation; keep it only in precompute.py.
+        cfg = replace(MiniMaxABID3TopKConfig(), progress_enabled=False)
         agent = MiniMaxABID3TopKAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
     else:
         if args.method == "elim":

@@ -7,7 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class MiniMaxABID3TopKConfig:
     # --- Core search controls ---
-    top_k: int = 3
+    top_k: int = 5
 
     # --- Progress reporting ---
     progress_enabled: bool = True
@@ -15,7 +15,7 @@ class MiniMaxABID3TopKConfig:
     # Progress estimator: est_total_nodes ≈ (top_k*3)^(avg_depth)
 
     # --- Tree logging / caching ---
-    tree_log_depth: int = 12  # plies (MIN action = 1 ply, MAX outcome = 1 ply)
+    tree_log_depth: int = 24  # plies (MIN action = 1 ply, MAX outcome = 1 ply)
 
     cache_enabled: bool = True
     cache_dir: Path = Path(".cache") / "minimax_ab_id3_topk"

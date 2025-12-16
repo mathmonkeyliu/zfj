@@ -13,6 +13,7 @@ from `layouts.jsonl` and filters by your feedback, exactly like a real interacti
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import os
 import time
 from typing import Literal
@@ -230,7 +231,8 @@ def interactive_game(
         # 你可以通过修改 mcts/config.py 调参；这里直接用默认配置
         mcts_agent = MCTSAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=MCTSConfig())
     if algo == "ab_id3k":
-        cfg = MiniMaxABID3TopKConfig() if ab_cfg is None else ab_cfg
+        # Silence search-node progress output during interactive play; keep it only in precompute.py.
+        cfg = replace(MiniMaxABID3TopKConfig(), progress_enabled=False) if ab_cfg is None else replace(ab_cfg, progress_enabled=False)
         ab_agent = MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     # board_state[x][y] where x=row, y=col
