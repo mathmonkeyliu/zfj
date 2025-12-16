@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import numpy as np
 
-from config import GRID_SIZE, GridState, LAYOUT_FILE
+from config import GRID_SIZE, GridState, LAYOUT_FILE, RELATIVE_COORDS, Direction
 
 
 OutcomeInt = Literal[0, 1, 2]  # 0=MISS, 1=BODY, 2=HEAD
@@ -47,6 +47,76 @@ def normalize_head_label(heads: list[list[int]] | list[tuple[int, int]]) -> tupl
     return tuple(sorted(hs))
 
 
+def _rotate_point(dx: int, dy: int, direction: Direction) -> tuple[int, int]:
+    """
+    Rotate an offset (dx, dy) in matrix coordinates (row down, col right).
+    Must match `layout_generater.rotate_point`.
+    """
+    if direction == Direction.UP:
+        return dx, dy
+    if direction == Direction.DOWN:
+        return -dx, -dy
+    if direction == Direction.LEFT:
+        return dy, -dx
+    if direction == Direction.RIGHT:
+        return -dy, dx
+    raise ValueError(f"Unknown direction: {direction}")
+
+
+def _plane_body_from_head_and_dir(head: tuple[int, int], direction: Direction) -> list[list[int]]:
+    hx, hy = int(head[0]), int(head[1])
+    out: list[list[int]] = []
+    for dx, dy in RELATIVE_COORDS:
+        rdx, rdy = _rotate_point(int(dx), int(dy), direction)
+        x, y = hx + rdx, hy + rdy
+        if not (0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE):
+            raise ValueError(f"Invalid plane: head={head} dir={direction} out of bounds at {(x, y)}")
+        out.append([int(x), int(y)])
+    return out
+
+
+def _expand_grouped_layouts(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Expand grouped jsonl rows (one row per head-pattern) into the original per-layout dict list:
+      {"heads":[...], "directions":[...], "bodies":[...]}
+    """
+    layouts: list[dict[str, Any]] = []
+    for g in groups:
+        heads_raw = g.get("heads")
+        dir_triples = g.get("dir_triples")
+        if not isinstance(heads_raw, list) or not isinstance(dir_triples, list):
+            raise ValueError("Grouped layout row must contain 'heads' (list) and 'dir_triples' (list).")
+        heads: list[list[int]] = [[int(x), int(y)] for x, y in heads_raw]
+        # Heads are expected to be canonical (sorted), but we normalize defensively.
+        heads = [list(xy) for xy in normalize_head_label(heads)]
+
+        for dirs_raw in dir_triples:
+            if not isinstance(dirs_raw, list) or len(dirs_raw) != 3:
+                raise ValueError("Each 'dir_triples' entry must be a list of 3 direction strings.")
+            dirs = [str(d) for d in dirs_raw]
+            bodies: list[list[int]] = []
+            occupied: set[tuple[int, int]] = set()
+            # Bodies depend on direction; reconstruct from heads+dirs.
+            for (hx, hy), dname in zip(heads, dirs, strict=True):
+                try:
+                    d = Direction[dname]
+                except KeyError as e:
+                    raise ValueError(f"Unknown direction name: {dname}") from e
+                pb = _plane_body_from_head_and_dir((hx, hy), d)
+                bodies.extend(pb)
+                occupied.add((int(hx), int(hy)))
+                for x, y in pb:
+                    occupied.add((int(x), int(y)))
+            # Basic overlap validation (optional but keeps corrupted files from poisoning runs).
+            if len(occupied) != (3 + 3 * len(RELATIVE_COORDS)):
+                # Not raising hard; but this indicates overlap inside a layout, which should not happen.
+                # Keep it strict to avoid silent wrongness.
+                raise ValueError(f"Invalid expanded layout: overlapping planes for heads={heads} dirs={dirs}")
+
+            layouts.append({"heads": heads, "directions": dirs, "bodies": bodies})
+    return layouts
+
+
 def load_layouts(file_path: str | Path | None = None) -> list[dict[str, Any]]:
     """
     Load layouts from a jsonl file (one layout per line).
@@ -62,21 +132,31 @@ def load_layouts(file_path: str | Path | None = None) -> list[dict[str, Any]]:
             raise FileNotFoundError(f"Layout file not found: {p}")
 
     if p.suffix.lower() == ".jsonl":
-        layouts: list[dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         with p.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                layouts.append(json.loads(line))
-        return layouts
+                rows.append(json.loads(line))
+        if not rows:
+            return []
+        # New format (grouped by heads): one row has "dir_triples".
+        if isinstance(rows[0], dict) and "dir_triples" in rows[0]:
+            return _expand_grouped_layouts(rows)
+        # Old format (one layout per line).
+        return rows
 
     if p.suffix.lower() == ".json":
         with p.open("r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
             raise ValueError(f"Expected a list in {p}, got {type(data)}")
-        return data
+        if not data:
+            return []
+        if isinstance(data[0], dict) and "dir_triples" in data[0]:
+            return _expand_grouped_layouts(data)  # type: ignore[arg-type]
+        return data  # type: ignore[return-value]
 
     raise ValueError(f"Unsupported layout file type: {p}")
 

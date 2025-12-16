@@ -45,12 +45,12 @@
 ```
 zfj/
 ├── config.py              # 游戏配置（网格大小、飞机形状、坐标约定等）
-├── layout_generater.py    # 生成所有合法布局（layouts.jsonl）
-├── layouts.jsonl          # 所有合法布局数据（需要运行layout_generater.py生成）
+├── layout_generater.py    # 生成所有合法布局（按“机头三元组”分组写入 layouts.jsonl）
+├── layouts.jsonl          # 所有合法布局数据（需要运行layout_generater.py生成；一行=一种机头排布）
 ├── environment.py         # 强化学习环境（step/reset/obs/action_mask）
 ├── id3/                   # 在线 ID3（每步信息增益选点）
-├── c45/                   # 在线 C4.5（每步增益率选点）
 ├── elim/                  # 在线 排除法（minimax：最坏情况下剩余机头分布数最小）
+├── monkey/                # Monkey（minimax+alpha-beta：ID3 top-k 限制分支）
 ├── interactive_play.py    # 交互程序
 └── evaluate.py            # 遍历所有布局评估并画柱状图（均值/中位数）
 ```
@@ -70,7 +70,7 @@ uv sync
 python layout_generater.py
 ```
 
-这将生成 `all_layouts.jsonl` 文件，包含所有可能的 3 架飞机布局组合。
+这将生成 `layouts.jsonl` 文件（按机头三元组分组，一行对应一种机头排布）。
 
 ### 2. 交互式游戏
 
@@ -100,9 +100,9 @@ python evaluate.py --method id3
 
 可选方法：
 - `id3`：信息增益
-- `c45`：增益率
 - `elim`：排除法（minimax：在 0/1/2 三种反馈的最坏情况下，让剩余机头分布种类数最小；当只剩 1 种机头分布时直接打机头）
 - `mcts`：MCTS（POMCP：每次 simulation 从候选布局中随机取样，用树搜索估计剩余步数期望）
+- `monkey`：minimax+alpha-beta（每步用 ID3 top-k 限制分支，DFS 到终局算最坏剩余步数）
 
 ## AI性能
 
@@ -111,12 +111,6 @@ python evaluate.py --method id3
 ### ID3
 ![ID3](evaluation_id3.png)
 中位数为**13.00**
-
-### C4.5
-![C4.5](evaluation_c45.png)
-中位数为**23.00**
-
-C4.5性能差了很多
 
 ### 其它
 

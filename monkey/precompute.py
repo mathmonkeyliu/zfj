@@ -12,20 +12,20 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from environment import build_outcome_table, load_layouts
-from minimax_ab_id3_topk import MiniMaxABID3TopKAgent, MiniMaxABID3TopKConfig
+from monkey import MonkeyAgent, MonkeyConfig
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Precompute (warm) ab_id3k minimax cache for a belief-state.")
+    ap = argparse.ArgumentParser(description="Precompute (warm) monkey minimax cache for a belief-state.")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
-    # ab_id3k is configured via minimax_ab_id3_topk/config.py (edit that file to tune).
+    # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
     layouts = load_layouts(args.layouts_file)
     outcomes, label_ids, labels = build_outcome_table(layouts)
 
-    cfg = MiniMaxABID3TopKConfig()
-    agent = MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+    cfg = MonkeyConfig()
+    agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     cand_idx = np.arange(outcomes.shape[0], dtype=np.int32)
     unshot = np.ones((100,), dtype=bool)

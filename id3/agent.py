@@ -13,7 +13,8 @@ def _entropy_from_counts(counts: np.ndarray) -> float:
     total = float(counts.sum())
     if total <= 0:
         return 0.0
-    p = counts[counts > 0].astype(np.float64) / total
+    # counts are "number of layouts" per head-pattern label under current candidates.
+    p = counts[counts > 0].astype(np.float64, copy=False) / total
     return float(-(p * np.log2(p)).sum())
 
 
@@ -43,7 +44,8 @@ class ID3Agent:
         y = self.label_ids[cand_idx]
         uniq_labels, inv = np.unique(y, return_inverse=True)
         m = int(uniq_labels.size)
-        base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m))
+        # H(Y): P(Y=label) = (#layouts in this head-pattern)/(#remaining layouts)
+        base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False))
 
         features = np.flatnonzero(unshot)
         best_gain = -1.0

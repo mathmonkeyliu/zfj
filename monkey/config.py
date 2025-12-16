@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
-class MiniMaxABID3TopKConfig:
+class MonkeyConfig:
     # --- Core search controls ---
     top_k: int = 5
 
@@ -18,6 +18,6 @@ class MiniMaxABID3TopKConfig:
     tree_log_depth: int = 30  # plies (MIN action = 1 ply, MAX outcome = 1 ply)
 
     cache_enabled: bool = True
-    cache_dir: Path = Path(".cache") / "minimax_ab_id3_topk"
+    cache_dir: Path = Path(".cache") / "monkey"
 
 

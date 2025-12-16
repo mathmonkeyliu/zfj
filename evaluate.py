@@ -11,10 +11,9 @@ import numpy as np
 
 from environment import BombPlanesEnv, load_layouts
 from id3 import ID3Agent
-from c45 import C45Agent
 from elim import ElimAgent
 from mcts import MCTSAgent, MCTSConfig
-from minimax_ab_id3_topk import MiniMaxABID3TopKAgent, MiniMaxABID3TopKConfig
+from monkey import MonkeyAgent, MonkeyConfig
 
 try:
     import matplotlib.pyplot as plt  # type: ignore
@@ -24,13 +23,13 @@ except ModuleNotFoundError:  # pragma: no cover
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "c45", "elim", "mcts", "ab_id3k"], default="id3")
+    ap.add_argument("--method", choices=["id3", "elim", "mcts", "monkey"], default="id3")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (defaults to config.LAYOUT_FILE).")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
     ap.add_argument("--mcts-sims", type=int, default=None, help="MCTS: simulations per move (overrides mcts/config.py default).")
     ap.add_argument("--mcts-depth", type=int, default=None, help="MCTS: max search depth (overrides mcts/config.py default).")
-    # ab_id3k is configured via minimax_ab_id3_topk/config.py (edit that file to tune).
+    # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
     # Candidate universe for the online algorithm: all layouts from file.
@@ -45,12 +44,10 @@ def main() -> None:
 
     if args.method == "id3":
         agent = ID3Agent.from_layouts(all_layouts)
-    elif args.method == "c45":
-        agent = C45Agent.from_layouts(all_layouts)
-    elif args.method == "ab_id3k":
+    elif args.method == "monkey":
         # Silence search-node progress output during evaluation; keep it only in precompute.py.
-        cfg = replace(MiniMaxABID3TopKConfig(), progress_enabled=False)
-        agent = MiniMaxABID3TopKAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
+        cfg = replace(MonkeyConfig(), progress_enabled=False)
+        agent = MonkeyAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
     else:
         if args.method == "elim":
             agent = ElimAgent.from_layouts(all_layouts)

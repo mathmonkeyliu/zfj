@@ -11,11 +11,11 @@ import numpy as np
 
 from config import GRID_SIZE, GridState
 from environment import BombPlanesEnv, build_outcome_table
-from minimax_ab_id3_topk.config import MiniMaxABID3TopKConfig
+from monkey.config import MonkeyConfig
 
 
 class _Progress:
-    def __init__(self, *, cfg: MiniMaxABID3TopKConfig) -> None:
+    def __init__(self, *, cfg: MonkeyConfig) -> None:
         self.cfg = cfg
         self.t0 = time.time()
         self.last_print = self.t0
@@ -45,18 +45,18 @@ class _Progress:
         dt = max(1e-9, now - self.last_print)
         nps = dv / dt
 
-        # Dynamic rough estimate of total nodes (user-requested):
+        # Dynamic rough estimate of total nodes:
         # est_total_nodes ≈ (breadth=top_k*3)^(depth=avg_steps)
         breadth = float(max(1, int(self.cfg.top_k) * 3))
         depth_est = max(avg_steps, float(depth_now) / 2.0)
-        est_total = int(min(1_000_000_000, max(1.0, breadth ** depth_est)))
+        est_total = int(min(1_000_000_000, max(1.0, breadth**depth_est)))
 
         frac = min(1.0, visited / max(1, est_total))
-        w = 24  # fixed width; config removed
+        w = 24  # fixed width
         filled = int(w * frac)
         bar = "=" * filled + " " * (w - filled)
         msg = (
-            f"\r[ab_id3k {bar}] "
+            f"\r[monkey {bar}] "
             f"visited {visited} /~{est_total}  tt {tt_size} hits {tt_hits}  "
             f"avg_depth {avg_steps:5.2f}  cur_depth {float(depth_now)/2.0:5.2f}  "
             f"{nps:7.0f} n/s  {elapsed:6.1f}s"
@@ -71,7 +71,8 @@ def _entropy_from_counts(counts: np.ndarray) -> float:
     total = float(counts.sum())
     if total <= 0:
         return 0.0
-    p = counts[counts > 0].astype(np.float64) / total
+    # counts are "number of layouts" per head-pattern label under current candidates.
+    p = counts[counts > 0].astype(np.float64, copy=False) / total
     return float(-(p * np.log2(p)).sum())
 
 
@@ -106,8 +107,8 @@ def _id3_topk_actions(
     y = label_ids[cand_idx]
     uniq, inv = np.unique(y, return_inverse=True)
     m = int(uniq.size)
-    # When m==1, IG is 0 for all; we fall back to head_prob.
-    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m)) if m > 0 else 0.0
+    # H(Y): P(Y=label) = (#layouts in this head-pattern)/(#remaining layouts)
+    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False)) if m > 0 else 0.0
 
     inv64 = inv.astype(np.int64, copy=False)
     gains = np.empty((feats.size,), dtype=np.float64)
@@ -163,9 +164,9 @@ INF = 10**9
 
 
 @dataclass
-class MiniMaxABID3TopKAgent:
+class MonkeyAgent:
     """
-    MiniMax + alpha-beta pruning, where branching on MIN actions is limited by ID3 top-k.
+    Monkey: minimax + alpha-beta pruning, where branching on MIN actions is limited by ID3 top-k.
 
     Game model (adversarial observation):
     - State is a belief set over layouts (cand_idx) plus unshot cells plus heads_hit.
@@ -180,7 +181,7 @@ class MiniMaxABID3TopKAgent:
     outcomes: np.ndarray  # (N,100) uint8 in {0,1,2}
     label_ids: np.ndarray  # (N,) int32
     labels: list[tuple[tuple[int, int], ...]]  # id -> canonical heads (3 tuples)
-    cfg: MiniMaxABID3TopKConfig = MiniMaxABID3TopKConfig()
+    cfg: MonkeyConfig = MonkeyConfig()
     _policy_index: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
     _cache_loaded: bool = field(default=False, init=False, repr=False)
     _cache_nodes: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
@@ -262,13 +263,13 @@ class MiniMaxABID3TopKAgent:
         layouts: list[dict[str, Any]],
         *,
         top_k: int = 8,
-        cfg: MiniMaxABID3TopKConfig | None = None,
-    ) -> "MiniMaxABID3TopKAgent":
+        cfg: MonkeyConfig | None = None,
+    ) -> "MonkeyAgent":
         outcomes, label_ids, labels = build_outcome_table(layouts)
         if cfg is None:
-            cfg = MiniMaxABID3TopKConfig(top_k=int(top_k))
+            cfg = MonkeyConfig(top_k=int(top_k))
         else:
-            cfg = MiniMaxABID3TopKConfig(
+            cfg = MonkeyConfig(
                 top_k=int(top_k),
                 progress_enabled=cfg.progress_enabled,
                 progress_every_sec=cfg.progress_every_sec,
@@ -276,7 +277,7 @@ class MiniMaxABID3TopKAgent:
                 cache_enabled=cfg.cache_enabled,
                 cache_dir=cfg.cache_dir,
             )
-        return MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+        return MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     def _terminal_remaining_heads(self, cand_idx: np.ndarray, unshot: np.ndarray) -> int | None:
         possible_labels = np.unique(self.label_ids[cand_idx])
@@ -437,7 +438,6 @@ class MiniMaxABID3TopKAgent:
 
         # Build *policy tree* for the unique best action only (3 outcomes),
         # while preserving alpha-beta during best-action search above.
-        # This matches: MIN has unique choice; then 0/1/2; then each leads to unique MIN choice.
         unshot2 = unshot.copy()
         unshot2[int(best_a)] = False
         col = self.outcomes[cand_idx, int(best_a)]
@@ -524,13 +524,12 @@ class MiniMaxABID3TopKAgent:
             # final line
             avg_steps = (float(counters.get("depth_sum", 0.0)) / max(1, int(counters.get("depth_cnt", 1)))) / 2.0
             print(
-                f"\r[ab_id3k done] visited {int(counters['visited'])}  tt {len(tt)} hits {int(counters['tt_hits'])}  "
+                f"\r[monkey done] visited {int(counters['visited'])}  tt {len(tt)} hits {int(counters['tt_hits'])}  "
                 f"avg_depth {avg_steps:5.2f}  value {int(v)}",
                 flush=True,
             )
 
         best_a = int(policy_tree["best_action"]) if isinstance(policy_tree, dict) and ("best_action" in policy_tree) else int(np.flatnonzero(unshot_actions)[0])
-        best_v = int(v)
 
         # index in-memory policy tree for reuse in subsequent steps (within saved depth)
         self._index_policy_tree(policy_tree if isinstance(policy_tree, dict) else None)

@@ -1,7 +1,7 @@
 """
 Root-level interactive CLI for Bombing Planes.
 
-You choose an algorithm (ID3 / C4.5). The algorithm proposes the next coordinate to attack.
+You choose an algorithm (ID3 / Elim / MCTS / Monkey). The algorithm proposes the next coordinate to attack.
 You then input the outcome:
   0 = MISS, 1 = BODY, 2 = HEAD
 The session ends when all 3 heads are hit.
@@ -22,7 +22,7 @@ import numpy as np
 
 from config import GRID_SIZE, GridState
 from environment import build_outcome_table, load_layouts
-from minimax_ab_id3_topk import MiniMaxABID3TopKAgent, MiniMaxABID3TopKConfig
+from monkey import MonkeyAgent, MonkeyConfig
 
 
 # --- ANSI colors ---
@@ -34,7 +34,7 @@ C_YELLOW = "\033[93m"  # suggestion
 C_BLUE = "\033[94m"  # frame
 
 
-Algo = Literal["id3", "c45", "elim", "mcts", "ab_id3k"]
+Algo = Literal["id3", "elim", "mcts", "monkey"]
 
 
 def clear_screen() -> None:
@@ -84,7 +84,8 @@ def _best_action_id3(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.n
     y = label_ids[cand_idx]
     uniq, inv = np.unique(y, return_inverse=True)
     m = int(uniq.size)
-    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m))
+    # H(Y): P(Y=label) = (#layouts in this head-pattern)/(#remaining layouts)
+    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False))
 
     features = np.flatnonzero(unshot)
     best_gain = -1.0
@@ -112,49 +113,6 @@ def _best_action_id3(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.n
         head_prob = float(outcome_counts[2] / n)
         if (gain > best_gain) or (np.isclose(gain, best_gain) and head_prob > best_head_prob):
             best_gain = float(gain)
-            best_a = int(a)
-            best_head_prob = head_prob
-
-    return best_a
-
-
-def _best_action_c45(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.ndarray, unshot: np.ndarray) -> int:
-    y = label_ids[cand_idx]
-    uniq, inv = np.unique(y, return_inverse=True)
-    m = int(uniq.size)
-    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m))
-
-    features = np.flatnonzero(unshot)
-    best_ratio = -1.0
-    best_a = int(features[0])
-    best_head_prob = -1.0
-
-    inv64 = inv.astype(np.int64, copy=False)
-    for a in features:
-        col = outcomes[cand_idx, int(a)].astype(np.int64, copy=False)
-        combo = col * m + inv64
-        cont = np.bincount(combo, minlength=3 * m).reshape(3, m)
-        outcome_counts = cont.sum(axis=1)
-        n = int(outcome_counts.sum())
-        if n == 0:
-            continue
-
-        cond_entropy = 0.0
-        for v in range(3):
-            nv = int(outcome_counts[v])
-            if nv == 0:
-                continue
-            cond_entropy += (nv / n) * _entropy_from_counts(cont[v])
-
-        info_gain = base_entropy - cond_entropy
-        split_info = _entropy_from_counts(outcome_counts.astype(np.float64))
-        if split_info <= 0:
-            continue
-
-        ratio = float(info_gain / split_info)
-        head_prob = float(outcome_counts[2] / n)
-        if (ratio > best_ratio) or (np.isclose(ratio, best_ratio) and head_prob > best_head_prob):
-            best_ratio = ratio
             best_a = int(a)
             best_head_prob = head_prob
 
@@ -218,22 +176,22 @@ def interactive_game(
     algo: Algo,
     layouts_file: str | None = None,
     *,
-    ab_cfg: MiniMaxABID3TopKConfig | None = None,
+    monkey_cfg: MonkeyConfig | None = None,
 ) -> None:
     layouts = load_layouts(layouts_file)
     outcomes, label_ids, labels = build_outcome_table(layouts)
     mcts_agent = None
-    ab_agent = None
+    monkey_agent = None
     if algo == "mcts":
         # 延迟导入，避免不需要时加载
         from mcts import MCTSAgent, MCTSConfig
 
         # 你可以通过修改 mcts/config.py 调参；这里直接用默认配置
         mcts_agent = MCTSAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=MCTSConfig())
-    if algo == "ab_id3k":
+    if algo == "monkey":
         # Silence search-node progress output during interactive play; keep it only in precompute.py.
-        cfg = replace(MiniMaxABID3TopKConfig(), progress_enabled=False) if ab_cfg is None else replace(ab_cfg, progress_enabled=False)
-        ab_agent = MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+        cfg = replace(MonkeyConfig(), progress_enabled=False) if monkey_cfg is None else replace(monkey_cfg, progress_enabled=False)
+        monkey_agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -279,13 +237,11 @@ def interactive_game(
                 break
             if algo == "id3":
                 a = _best_action_id3(outcomes, label_ids, cand_idx, unshot)
-            elif algo == "c45":
-                a = _best_action_c45(outcomes, label_ids, cand_idx, unshot)
             elif algo == "elim":
                 a = _best_action_elim(outcomes, label_ids, cand_idx, unshot)
-            elif algo == "ab_id3k":
-                assert ab_agent is not None
-                a = ab_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
+            elif algo == "monkey":
+                assert monkey_agent is not None
+                a = monkey_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
             else:
                 assert mcts_agent is not None
                 a = mcts_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
@@ -350,41 +306,38 @@ def interactive_game(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
-    ap.add_argument("--algo", choices=["id3", "c45", "elim", "mcts", "ab_id3k"], default=None, help="Algorithm to use (or choose interactively).")
+    ap.add_argument("--algo", choices=["id3", "elim", "mcts", "monkey"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
-    # ab_id3k is configured via minimax_ab_id3_topk/config.py (edit that file to tune).
+    # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
     algo: Algo
     if args.algo is None:
         print("请选择算法：")
         print("  1) ID3 (信息增益)")
-        print("  2) C4.5 (增益率)")
-        print("  3) 排除法 (minimax 最坏情况下剩余机头分布数最小)")
-        print("  4) MCTS (POMCP：对候选布局随机取样做树搜索)")
-        print("  5) MiniMax+alpha-beta (ID3 top-k 展开，DFS 到终局算最坏剩余步数)")
+        print("  2) 排除法 (minimax 最坏情况下剩余机头分布数最小)")
+        print("  3) MCTS (POMCP：对候选布局随机取样做树搜索)")
+        print("  4) Monkey (minimax+alpha-beta：每步用 ID3 top-k 限制分支，DFS 到终局算最坏剩余步数)")
         try:
-            c = input("输入 1/2/3 > ").strip()
+            c = input("输入 1/2/3/4 > ").strip()
         except EOFError:
             print("\nEOF received, exiting.")
             return
         if c == "1":
             algo = "id3"
         elif c == "2":
-            algo = "c45"
-        elif c == "3":
             algo = "elim"
-        elif c == "4":
+        elif c == "3":
             algo = "mcts"
         else:
-            algo = "ab_id3k"
+            algo = "monkey"
     else:
         algo = args.algo  # type: ignore[assignment]
 
     interactive_game(
         algo=algo,
         layouts_file=args.layouts_file,
-        ab_cfg=MiniMaxABID3TopKConfig(),
+        monkey_cfg=MonkeyConfig(),
     )
 
 
