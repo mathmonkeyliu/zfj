@@ -21,6 +21,7 @@ import numpy as np
 
 from config import GRID_SIZE, GridState
 from environment import build_outcome_table, load_layouts
+from minimax_ab_id3_topk import MiniMaxABID3TopKAgent, MiniMaxABID3TopKConfig
 
 
 # --- ANSI colors ---
@@ -32,7 +33,7 @@ C_YELLOW = "\033[93m"  # suggestion
 C_BLUE = "\033[94m"  # frame
 
 
-Algo = Literal["id3", "c45", "elim", "mcts"]
+Algo = Literal["id3", "c45", "elim", "mcts", "ab_id3k"]
 
 
 def clear_screen() -> None:
@@ -212,16 +213,25 @@ def _best_action_elim(outcomes: np.ndarray, label_ids: np.ndarray, cand_idx: np.
     return best_a
 
 
-def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
+def interactive_game(
+    algo: Algo,
+    layouts_file: str | None = None,
+    *,
+    ab_cfg: MiniMaxABID3TopKConfig | None = None,
+) -> None:
     layouts = load_layouts(layouts_file)
     outcomes, label_ids, labels = build_outcome_table(layouts)
     mcts_agent = None
+    ab_agent = None
     if algo == "mcts":
         # 延迟导入，避免不需要时加载
         from mcts import MCTSAgent, MCTSConfig
 
         # 你可以通过修改 mcts/config.py 调参；这里直接用默认配置
         mcts_agent = MCTSAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=MCTSConfig())
+    if algo == "ab_id3k":
+        cfg = MiniMaxABID3TopKConfig() if ab_cfg is None else ab_cfg
+        ab_agent = MiniMaxABID3TopKAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -271,6 +281,9 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
                 a = _best_action_c45(outcomes, label_ids, cand_idx, unshot)
             elif algo == "elim":
                 a = _best_action_elim(outcomes, label_ids, cand_idx, unshot)
+            elif algo == "ab_id3k":
+                assert ab_agent is not None
+                a = ab_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
             else:
                 assert mcts_agent is not None
                 a = mcts_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
@@ -335,8 +348,9 @@ def interactive_game(algo: Algo, layouts_file: str | None = None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
-    ap.add_argument("--algo", choices=["id3", "c45", "elim", "mcts"], default=None, help="Algorithm to use (or choose interactively).")
+    ap.add_argument("--algo", choices=["id3", "c45", "elim", "mcts", "ab_id3k"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
+    # ab_id3k is configured via minimax_ab_id3_topk/config.py (edit that file to tune).
     args = ap.parse_args()
 
     algo: Algo
@@ -346,6 +360,7 @@ def main() -> None:
         print("  2) C4.5 (增益率)")
         print("  3) 排除法 (minimax 最坏情况下剩余机头分布数最小)")
         print("  4) MCTS (POMCP：对候选布局随机取样做树搜索)")
+        print("  5) MiniMax+alpha-beta (ID3 top-k 展开，DFS 到终局算最坏剩余步数)")
         try:
             c = input("输入 1/2/3 > ").strip()
         except EOFError:
@@ -357,12 +372,18 @@ def main() -> None:
             algo = "c45"
         elif c == "3":
             algo = "elim"
-        else:
+        elif c == "4":
             algo = "mcts"
+        else:
+            algo = "ab_id3k"
     else:
         algo = args.algo  # type: ignore[assignment]
 
-    interactive_game(algo=algo, layouts_file=args.layouts_file)
+    interactive_game(
+        algo=algo,
+        layouts_file=args.layouts_file,
+        ab_cfg=MiniMaxABID3TopKConfig(),
+    )
 
 
 if __name__ == "__main__":

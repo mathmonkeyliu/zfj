@@ -6,7 +6,6 @@ from typing import Any
 import sys
 import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from environment import BombPlanesEnv, load_layouts
@@ -14,16 +13,23 @@ from id3 import ID3Agent
 from c45 import C45Agent
 from elim import ElimAgent
 from mcts import MCTSAgent, MCTSConfig
+from minimax_ab_id3_topk import MiniMaxABID3TopKAgent, MiniMaxABID3TopKConfig
+
+try:
+    import matplotlib.pyplot as plt  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    plt = None
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "c45", "elim", "mcts"], default="id3")
+    ap.add_argument("--method", choices=["id3", "c45", "elim", "mcts", "ab_id3k"], default="id3")
     ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (defaults to config.LAYOUT_FILE).")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
     ap.add_argument("--mcts-sims", type=int, default=None, help="MCTS: simulations per move (overrides mcts/config.py default).")
     ap.add_argument("--mcts-depth", type=int, default=None, help="MCTS: max search depth (overrides mcts/config.py default).")
+    # ab_id3k is configured via minimax_ab_id3_topk/config.py (edit that file to tune).
     args = ap.parse_args()
 
     # Candidate universe for the online algorithm: all layouts from file.
@@ -40,6 +46,9 @@ def main() -> None:
         agent = ID3Agent.from_layouts(all_layouts)
     elif args.method == "c45":
         agent = C45Agent.from_layouts(all_layouts)
+    elif args.method == "ab_id3k":
+        cfg = MiniMaxABID3TopKConfig()
+        agent = MiniMaxABID3TopKAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
     else:
         if args.method == "elim":
             agent = ElimAgent.from_layouts(all_layouts)
@@ -111,6 +120,10 @@ def main() -> None:
     print(f"layouts: {len(layouts)}")
     print(f"mean_steps: {mean_steps:.3f}")
     print(f"median_steps: {median_steps:.3f}")
+
+    if plt is None:
+        print("matplotlib not installed; skipping histogram plot. Install it to enable chart output.")
+        return
 
     # "柱状图" as histogram of steps
     plt.figure(figsize=(12, 6))
