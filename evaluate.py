@@ -25,6 +25,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
     ap.add_argument("--topk", type=int, default=None, help="Monkey: override top_k (branching factor).")
+    ap.add_argument("--precomputed", type=str, default=None, help="Monkey: path to precomputed search tree file.")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
@@ -42,18 +43,17 @@ def main() -> None:
         agent = ID3Agent.from_layouts(all_layouts)
     else:
         # Silence search-node progress output during evaluation; keep it only in precompute.py.
-        cfg0 = MonkeyConfig()
-        if args.topk is not None:
-            cfg0 = MonkeyConfig(
-                top_k=int(args.topk),
-                progress_enabled=cfg0.progress_enabled,
-                progress_every_sec=cfg0.progress_every_sec,
-                tree_log_depth=cfg0.tree_log_depth,
-                cache_enabled=cfg0.cache_enabled,
-                cache_dir=cfg0.cache_dir,
-            )
-        cfg = replace(cfg0, progress_enabled=False)
-        agent = MonkeyAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
+        if args.precomputed:
+            # 使用预计算的搜索树
+            print(f"Loading precomputed search tree from {args.precomputed}")
+            agent = MonkeyAgent.from_precomputed(args.precomputed, all_layouts)
+        else:
+            # 在线计算
+            cfg = MonkeyConfig()
+            if args.topk is not None:
+                cfg = replace(cfg, top_k=int(args.topk))
+            cfg = replace(cfg, progress_enabled=False)
+            agent = MonkeyAgent.from_layouts(all_layouts, cfg=cfg)
 
     env = BombPlanesEnv(layouts=all_layouts, reward_mode="sparse", illegal_action="raise", max_steps=500)
 

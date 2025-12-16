@@ -1,610 +1,418 @@
+"""
+Monkey agent: minimax + alpha-beta pruning with ID3-based action selection.
+
+玩家扮演 min（最小化步数），假想角色扮演 max（最大化步数）。
+使用 ID3 方法中熵减最大的 top-k 个格子作为玩家的候选动作。
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from hashlib import blake2b
-import json
-import time
-from pathlib import Path
+import sys
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from config import GRID_SIZE, GridState
-from environment import BombPlanesEnv, build_outcome_table
-from monkey.config import MonkeyConfig
+from environment import BombPlanesEnv, build_outcome_table, load_layouts
 
-
-class _Progress:
-    def __init__(self, *, cfg: MonkeyConfig) -> None:
-        self.cfg = cfg
-        self.t0 = time.time()
-        self.last_print = self.t0
-        self.last_visited = 0
-
-    def update(
-        self,
-        *,
-        counters: dict[str, Any],
-        tt_size: int,
-        depth_now: int,
-    ) -> None:
-        if not bool(self.cfg.progress_enabled):
-            return
-        now = time.time()
-        if now - self.last_print < float(self.cfg.progress_every_sec):
-            return
-
-        visited = int(counters.get("visited", 0))
-        tt_hits = int(counters.get("tt_hits", 0))
-        depth_sum = float(counters.get("depth_sum", 0.0))
-        depth_cnt = max(1, int(counters.get("depth_cnt", 0)))
-        avg_steps = (depth_sum / depth_cnt) / 2.0  # "当前步数平均值"（平均 step）
-
-        elapsed = now - self.t0
-        dv = visited - self.last_visited
-        dt = max(1e-9, now - self.last_print)
-        nps = dv / dt
-
-        # Dynamic rough estimate of total nodes:
-        # est_total_nodes ≈ (breadth=top_k*3)^(depth=avg_steps)
-        breadth = float(max(1, int(self.cfg.top_k) * 3))
-        depth_est = max(avg_steps, float(depth_now) / 2.0)
-        est_total = int(min(1_000_000_000, max(1.0, breadth**depth_est)))
-
-        frac = min(1.0, visited / max(1, est_total))
-        w = 24  # fixed width
-        filled = int(w * frac)
-        bar = "=" * filled + " " * (w - filled)
-        msg = (
-            f"\r[monkey {bar}] "
-            f"visited {visited} /~{est_total}  tt {tt_size} hits {tt_hits}  "
-            f"avg_depth {avg_steps:5.2f}  cur_depth {float(depth_now)/2.0:5.2f}  "
-            f"{nps:7.0f} n/s  {elapsed:6.1f}s"
-        )
-
-        print(msg, end="", flush=True)
-        self.last_print = now
-        self.last_visited = visited
+from .config import MonkeyConfig
 
 
 def _entropy_from_counts(counts: np.ndarray) -> float:
+    """计算熵"""
     total = float(counts.sum())
     if total <= 0:
         return 0.0
-    # counts are "number of layouts" per head-pattern label under current candidates.
     p = counts[counts > 0].astype(np.float64, copy=False) / total
     return float(-(p * np.log2(p)).sum())
 
 
-def _pack_unshot(unshot: np.ndarray) -> bytes:
-    # 100 bool -> 13 bytes (packed bits)
-    return np.packbits(unshot.astype(np.uint8), bitorder="little").tobytes()
-
-
-def _hash_cand_idx(cand_idx: np.ndarray) -> bytes:
-    # 8-byte digest, extremely low collision risk in practice; keyed with size as well.
-    return blake2b(cand_idx.tobytes(), digest_size=8).digest()
-
-
-def _id3_topk_actions(
+def _compute_entropy_gains(
     outcomes: np.ndarray,
     label_ids: np.ndarray,
     cand_idx: np.ndarray,
     unshot: np.ndarray,
-    *,
-    k: int,
-) -> np.ndarray:
+) -> tuple[list[int], list[float]]:
     """
-    Select top-k actions by ID3 information gain (entropy reduction).
+    计算所有未打击格子的信息增益（熵减）。
     
-    Returns actions sorted by: (-gain, -head_prob, action_id)
-    - Prioritizes actions with highest entropy reduction (best for MIN player)
-    - Tie-breaking: prefer higher head probability, then smaller action id
+    返回：
+    - actions: 动作列表（按熵减从大到小排序）
+    - gains: 对应的熵减列表
     """
-    feats = np.flatnonzero(unshot)
-    if feats.size == 0:
-        return feats
-    if feats.size <= k:
-        return feats.astype(np.int32, copy=False)
-
     y = label_ids[cand_idx]
-    uniq, inv = np.unique(y, return_inverse=True)
-    m = int(uniq.size)
-    # H(Y): P(Y=label) = (#layouts in this head-pattern)/(#remaining layouts)
-    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False)) if m > 0 else 0.0
+    uniq_labels, inv = np.unique(y, return_inverse=True)
+    m = int(uniq_labels.size)
+    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False))
+
+    features = np.flatnonzero(unshot)
+    gains: list[float] = []
+    actions: list[int] = []
 
     inv64 = inv.astype(np.int64, copy=False)
-    gains = np.empty((feats.size,), dtype=np.float64)
-    head_probs = np.empty((feats.size,), dtype=np.float64)
-
-    for i, a in enumerate(feats):
-        col = outcomes[cand_idx, int(a)].astype(np.int64, copy=False)  # 0/1/2
+    for a in features:
+        col = outcomes[cand_idx, int(a)].astype(np.int64, copy=False)
         combo = col * m + inv64
         cont = np.bincount(combo, minlength=3 * m).reshape(3, m)
         outcome_counts = cont.sum(axis=1)
+
         n = int(outcome_counts.sum())
-        if n <= 0:
-            gains[i] = -1e100
-            head_probs[i] = -1.0
+        if n == 0:
             continue
 
-        if m <= 1:
-            cond_entropy = 0.0
+        cond_entropy = 0.0
+        for v in range(3):
+            nv = int(outcome_counts[v])
+            if nv == 0:
+                continue
+            cond_entropy += (nv / n) * _entropy_from_counts(cont[v])
+
+        gain = base_entropy - cond_entropy
+        gains.append(float(gain))
+        actions.append(int(a))
+
+    # 按熵减从大到小排序
+    sorted_indices = sorted(range(len(gains)), key=lambda i: gains[i], reverse=True)
+    sorted_actions = [actions[i] for i in sorted_indices]
+    sorted_gains = [gains[i] for i in sorted_indices]
+
+    return sorted_actions, sorted_gains
+
+
+def _compute_entropy_gains_for_action(
+    outcomes: np.ndarray,
+    label_ids: np.ndarray,
+    cand_idx: np.ndarray,
+    action: int,
+) -> tuple[list[float], list[int]]:
+    """
+    计算某个动作的三种可能结果（MISS=0, BODY=1, HEAD=2）的熵减。
+    
+    返回：
+    - gains: 三种结果的熵减列表
+    - outcome_orders: 按熵减从小到大排序的结果值列表（max 玩家的选择顺序）
+    """
+    y = label_ids[cand_idx]
+    uniq_labels, inv = np.unique(y, return_inverse=True)
+    m = int(uniq_labels.size)
+    base_entropy = _entropy_from_counts(np.bincount(inv, minlength=m).astype(np.float64, copy=False))
+
+    col = outcomes[cand_idx, int(action)].astype(np.int64, copy=False)
+    inv64 = inv.astype(np.int64, copy=False)
+    combo = col * m + inv64
+    cont = np.bincount(combo, minlength=3 * m).reshape(3, m)
+    outcome_counts = cont.sum(axis=1)
+
+    n = int(outcome_counts.sum())
+    gains: list[float] = []
+    
+    for v in range(3):
+        nv = int(outcome_counts[v])
+        if nv == 0:
+            # 这个结果不可能发生
+            gains.append(float('inf'))  # 无穷大表示不可能
         else:
-            cond_entropy = 0.0
-            for v in range(3):
-                nv = int(outcome_counts[v])
-                if nv == 0:
-                    continue
-                cond_entropy += (nv / n) * _entropy_from_counts(cont[v])
-        gains[i] = float(base_entropy - cond_entropy)
-        head_probs[i] = float(outcome_counts[2] / n)
+            cond_entropy = _entropy_from_counts(cont[v])
+            gain = base_entropy - cond_entropy
+            gains.append(float(gain))
 
-    k = max(1, int(k))
-    top_idx = np.argpartition(-gains, kth=k - 1)[:k]
-    top_actions = feats[top_idx].astype(np.int32, copy=False)
-    top_gains = gains[top_idx]
-    top_hp = head_probs[top_idx]
-
-    # sort by (-gain, -head_prob, action_id)
-    order = np.lexsort((top_actions, -top_hp, -top_gains))
-    return top_actions[order]
-
-
-def _state_cache_key(*, heads_hit: int, cand_idx: np.ndarray, unshot: np.ndarray, top_k: int) -> str:
-    """
-    Cache key for a belief-state + branching config.
-    """
-    h = blake2b(digest_size=16)
-    h.update(int(heads_hit).to_bytes(1, "little", signed=False))
-    h.update(int(top_k).to_bytes(2, "little", signed=False))
-    h.update(_hash_cand_idx(cand_idx))
-    h.update(_pack_unshot(unshot))
-    return h.hexdigest()
-
-
-INF = 10**9
+    # max 玩家按熵减从小到大排序（选择剩余熵最大的）
+    outcome_orders = sorted(range(3), key=lambda i: gains[i])
+    
+    return gains, outcome_orders
 
 
 @dataclass
 class MonkeyAgent:
     """
-    Monkey: minimax + alpha-beta pruning, where branching on MIN actions is limited by ID3 top-k.
-
-    Game model (adversarial observation):
-    - State is a belief set over layouts (cand_idx) plus unshot cells plus heads_hit.
-    - MIN chooses an unshot cell to attack (we only expand ID3 top-k).
-    - MAX chooses the outcome among {MISS,BODY,HEAD} that is *still possible* under the belief,
-      to maximize remaining steps to termination.
-    Terminal conditions (value returns "remaining steps"):
-    - If heads_hit==3: 0.
-    - If belief collapses to a single head-configuration label: remaining_heads.
+    Monkey agent using minimax + alpha-beta pruning.
+    
+    玩家（min）试图最小化步数，假想对手（max）试图最大化步数。
     """
 
     outcomes: np.ndarray  # (N,100) uint8 in {0,1,2}
-    label_ids: np.ndarray  # (N,) int32
-    labels: list[tuple[tuple[int, int], ...]]  # id -> canonical heads (3 tuples)
-    cfg: MonkeyConfig = MonkeyConfig()
-    _policy_index: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
-    _cache_loaded: bool = field(default=False, init=False, repr=False)
-    _cache_nodes: dict[str, dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
+    label_ids: np.ndarray  # (N,) int32 (head-config id)
+    labels: list[tuple[tuple[int, int], ...]]  # id -> canonical heads
+    cfg: MonkeyConfig
 
-    def _cache_file_path(self) -> Path:
-        # One unified cache file per top_k (so you don't get "a bunch of files").
-        return Path(self.cfg.cache_dir) / f"policy_cache_topk{int(self.cfg.top_k)}.json"
-
-    def _load_cache_once(self) -> None:
-        if self._cache_loaded:
-            return
-        self._cache_loaded = True
-        if not bool(self.cfg.cache_enabled):
-            return
-        p = self._cache_file_path()
-        if not p.exists():
-            return
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            nodes = data.get("nodes")
-            if isinstance(nodes, dict):
-                # nodes: state_key -> MIN node dict
-                self._cache_nodes = {str(k): v for k, v in nodes.items() if isinstance(v, dict)}
-                # also seed policy_index for fast lookup
-                for sk, n in self._cache_nodes.items():
-                    if "best_action" in n:
-                        self._policy_index[sk] = n
-        except Exception:
-            # ignore corrupted cache
-            self._cache_nodes = {}
-
-    def _save_cache(self) -> None:
-        if not bool(self.cfg.cache_enabled):
-            return
-        try:
-            Path(self.cfg.cache_dir).mkdir(parents=True, exist_ok=True)
-            p = self._cache_file_path()
-            tmp = p.with_suffix(".tmp")
-            payload = {
-                "version": 1,
-                "top_k": int(self.cfg.top_k),
-                "tree_log_depth": int(self.cfg.tree_log_depth),
-                "nodes": self._cache_nodes,
-                "saved_at_unix": float(time.time()),
-            }
-            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(p)
-        except Exception:
-            pass
-
-    def _index_policy_tree(self, node: dict[str, Any] | None) -> None:
-        """
-        Index all MIN nodes in a cached/constructed policy tree by their state_key.
-        """
-        if not isinstance(node, dict):
-            return
-
-        stack: list[dict[str, Any]] = [node]
-        while stack:
-            cur = stack.pop()
-            if not isinstance(cur, dict):
-                continue
-            if cur.get("kind") == "MIN":
-                sk = cur.get("state_key")
-                if isinstance(sk, str) and ("best_action" in cur):
-                    self._policy_index[sk] = cur
-                    self._cache_nodes[sk] = cur
-                # traverse outcomes
-                outs = cur.get("outcomes")
-                if isinstance(outs, list):
-                    for o in outs:
-                        if isinstance(o, dict):
-                            ch = o.get("child")
-                            if isinstance(ch, dict):
-                                stack.append(ch)
+    # 搜索树缓存（可选，从 precompute 加载）
+    _search_tree: dict[tuple, tuple[int, int]] | None = None  # (state_key) -> (best_action, best_value)
 
     @staticmethod
-    def from_layouts(
-        layouts: list[dict[str, Any]],
-        *,
-        top_k: int = 8,
-        cfg: MonkeyConfig | None = None,
-    ) -> "MonkeyAgent":
+    def from_layouts(layouts: list[dict[str, Any]], cfg: MonkeyConfig | None = None) -> "MonkeyAgent":
         outcomes, label_ids, labels = build_outcome_table(layouts)
         if cfg is None:
-            cfg = MonkeyConfig(top_k=int(top_k))
-        else:
-            cfg = MonkeyConfig(
-                top_k=int(top_k),
-                progress_enabled=cfg.progress_enabled,
-                progress_every_sec=cfg.progress_every_sec,
-                tree_log_depth=cfg.tree_log_depth,
-                cache_enabled=cfg.cache_enabled,
-                cache_dir=cfg.cache_dir,
-            )
+            cfg = MonkeyConfig()
         return MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
-    def _terminal_remaining_heads(self, cand_idx: np.ndarray, unshot: np.ndarray) -> int | None:
-        possible_labels = np.unique(self.label_ids[cand_idx])
-        if possible_labels.size != 1:
-            return None
-        heads = self.labels[int(possible_labels[0])]
-        rem = 0
-        for hx, hy in heads:
-            a = int(hx) * GRID_SIZE + int(hy)
-            if bool(unshot[a]):
-                rem += 1
-        return int(rem)
+    @staticmethod
+    def from_precomputed(precomputed_path: str | Any, layouts: list[dict[str, Any]] | None = None) -> "MonkeyAgent":
+        """从预计算的搜索树加载 agent"""
+        import pickle
+        from pathlib import Path
+        
+        path = Path(precomputed_path) if isinstance(precomputed_path, str) else precomputed_path
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        
+        if layouts is None:
+            layouts = load_layouts(None)
+        
+        outcomes, label_ids, labels = build_outcome_table(layouts)
+        cfg = data.get("config", MonkeyConfig())
+        search_tree = data.get("search_tree", None)
+        
+        agent = MonkeyAgent(
+            outcomes=outcomes,
+            label_ids=label_ids,
+            labels=labels,
+            cfg=cfg,
+            _search_tree=search_tree,
+        )
+        
+        return agent
 
-    def _search_value(
-        self,
-        cand_idx: np.ndarray,
-        unshot: np.ndarray,
-        heads_hit: int,
-        alpha: int,
-        beta: int,
-        tt: dict[tuple[int, int, bytes, bytes], int],
-        counters: dict[str, Any],
-        *,
-        depth_now: int,
-        progress: _Progress | None,
-    ) -> int:
+    def _state_key(self, cand_idx: np.ndarray, unshot: np.ndarray, heads_hit: int) -> tuple:
+        """生成状态的唯一标识（用于缓存）"""
+        return (tuple(sorted(cand_idx.tolist())), tuple(unshot.tolist()), heads_hit)
+
+    def _is_terminal(self, heads_hit: int, cand_idx: np.ndarray) -> bool:
+        """判断是否达到终止状态"""
+        return heads_hit >= 3 or cand_idx.size == 0
+
+    def _terminal_steps(self, cand_idx: np.ndarray, unshot: np.ndarray, heads_hit: int) -> int:
         """
-        Pure minimax search with alpha-beta pruning and full TT caching.
-        Returns only the value, no policy tree construction.
-        
-        Value: remaining steps to complete (lower is better for player/MIN).
-        
-        This is the fast path for finding optimal values with maximum TT reuse.
+        计算终止状态下还需要的步数。
+        如果已经击中 3 个机头，返回 0。
+        否则，返回剩余未击中的机头数量。
         """
-        # Terminal checks
         if heads_hit >= 3:
             return 0
-        if cand_idx.size == 0 or (not unshot.any()):
-            return INF
+        
+        if cand_idx.size == 0:
+            # 不应该发生，但如果发生了，返回一个很大的数
+            return 1000
+        
+        # 找出所有可能的机头位置
+        possible_labels = np.unique(self.label_ids[cand_idx])
+        if possible_labels.size == 1:
+            # 只剩一种机头配置，直接数剩余未击中的机头
+            heads = self.labels[int(possible_labels[0])]
+            remaining = 0
+            for hx, hy in heads:
+                a = int(hx) * GRID_SIZE + int(hy)
+                if unshot[a]:
+                    remaining += 1
+            return remaining
+        
+        # 多种可能的机头配置，返回 0（需要继续搜索）
+        return 0
 
-        rem = self._terminal_remaining_heads(cand_idx, unshot)
-        if rem is not None:
-            return int(rem)
-
-        # TT lookup (always use cache for value search)
-        key = (int(heads_hit), int(cand_idx.size), _hash_cand_idx(cand_idx), _pack_unshot(unshot))
-        cached = tt.get(key)
-        if cached is not None:
-            counters["tt_hits"] += 1
-            return int(cached)
-
-        counters["visited"] += 1
-        counters["depth_sum"] = float(counters.get("depth_sum", 0.0)) + float(depth_now)
-        counters["depth_cnt"] = int(counters.get("depth_cnt", 0)) + 1
-        if progress is not None:
-            progress.update(counters=counters, tt_size=len(tt), depth_now=int(depth_now))
-
-        # ID3 top-k actions (entropy reduction ordering)
-        actions = _id3_topk_actions(self.outcomes, self.label_ids, cand_idx, unshot, k=int(self.cfg.top_k))
-        if actions.size == 0:
-            tt[key] = INF
-            return INF
-
-        best_v = INF
-        child_alpha = alpha - 1
-        child_beta = beta - 1
-
-        for a in actions:
-            if not bool(unshot[int(a)]):
-                continue
-            unshot2 = unshot.copy()
-            unshot2[int(a)] = False
-            col = self.outcomes[cand_idx, int(a)]
-
-            # MAX aggregation: find max over outcomes
-            worst_child = -INF
-            
-            # Order outcomes by remaining entropy (high→low) for better pruning
-            outcome_candidates: list[tuple[float, int, np.ndarray]] = []
-            for v in (0, 1, 2):
-                mask = col == v
-                if not bool(mask.any()):
-                    continue
-                cand2 = cand_idx[mask]
-                y = self.label_ids[cand2]
-                uniq, inv = np.unique(y, return_inverse=True)
-                entropy_after = _entropy_from_counts(np.bincount(inv, minlength=int(uniq.size)).astype(np.float64, copy=False))
-                outcome_candidates.append((float(entropy_after), int(v), cand2))
-            
-            outcome_candidates.sort(key=lambda t: (t[0], t[2].size), reverse=True)
-
-            max_alpha = child_alpha
-            for _, v, cand2 in outcome_candidates:
-                heads2 = heads_hit + (1 if v == 2 else 0)
-                t_child = self._search_value(
-                    cand2,
-                    unshot2,
-                    heads2,
-                    max_alpha,
-                    child_beta,
-                    tt,
-                    counters,
-                    depth_now=int(depth_now) + 2,
-                    progress=progress,
-                )
-                worst_child = max(worst_child, int(t_child))
-                if worst_child >= child_beta:
-                    break
-                max_alpha = max(max_alpha, worst_child)
-                
-            val = 1 + int(worst_child)
-            if val < best_v:
-                best_v = int(val)
-                if best_v <= alpha:
-                    break
-                if best_v < beta:
-                    beta = best_v
-                    child_beta = beta - 1
-
-        tt[key] = int(best_v)
-        return int(best_v)
-
-    def _build_policy_tree(
+    def _minimax(
         self,
         cand_idx: np.ndarray,
         unshot: np.ndarray,
         heads_hit: int,
-        tt: dict[tuple[int, int, bytes, bytes], int],
-        counters: dict[str, Any],
-        *,
-        depth_left: int,
-        depth_now: int,
-        progress: _Progress | None,
-    ) -> tuple[int, dict[str, Any]]:
+        depth: int,
+        alpha: float,
+        beta: float,
+        is_min_player: bool,
+    ) -> tuple[int | None, int]:
         """
-        Build policy tree for the best action path, using TT values for guidance.
-        This assumes _search_value has already populated the TT.
+        Minimax with alpha-beta pruning.
+        搜索到终止状态（所有 3 个机头都被击中）。
         
-        Returns: (value, policy_tree_node)
+        返回：
+        - best_action: 最佳动作（如果是 None 表示终止状态）
+        - best_value: 最佳值（对于 min 玩家，表示最坏情况下的剩余步数）
         """
-        state_key = _state_cache_key(heads_hit=int(heads_hit), cand_idx=cand_idx, unshot=unshot, top_k=int(self.cfg.top_k))
-        
-        # Terminal states
-        if heads_hit >= 3:
-            return 0, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": 0}
-        if cand_idx.size == 0 or (not unshot.any()):
-            return INF, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
-        
-        rem = self._terminal_remaining_heads(cand_idx, unshot)
-        if rem is not None:
-            return int(rem), {
-                "kind": "MIN",
-                "state_key": state_key,
-                "terminal": True,
-                "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)},
-                "value": int(rem),
-            }
-        
-        if depth_left <= 0:
-            # No tree needed, return value from TT
-            key = (int(heads_hit), int(cand_idx.size), _hash_cand_idx(cand_idx), _pack_unshot(unshot))
-            val = tt.get(key, INF)
-            return int(val), {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": int(val)}
-        
-        # Find best action by evaluating all top-k actions (using TT values)
-        actions = _id3_topk_actions(self.outcomes, self.label_ids, cand_idx, unshot, k=int(self.cfg.top_k))
-        if actions.size == 0:
-            return INF, {"kind": "MIN", "state_key": state_key, "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)}, "value": INF}
-        
-        best_v = INF
-        best_a = int(actions[0])
-        
-        for a in actions:
-            if not bool(unshot[int(a)]):
-                continue
-            unshot2 = unshot.copy()
-            unshot2[int(a)] = False
-            col = self.outcomes[cand_idx, int(a)]
+        # 检查终止状态
+        if self._is_terminal(heads_hit, cand_idx):
+            return None, self._terminal_steps(cand_idx, unshot, heads_hit)
+
+        # 检查是否只剩一种机头配置
+        possible_labels = np.unique(self.label_ids[cand_idx])
+        if possible_labels.size == 1:
+            heads = self.labels[int(possible_labels[0])]
+            remaining = 0
+            for hx, hy in heads:
+                a = int(hx) * GRID_SIZE + int(hy)
+                if unshot[a]:
+                    remaining += 1
+            return None, remaining
+
+        if is_min_player:
+            # 玩家回合：选择动作（min）
+            # 计算熵减并选择 top-k
+            actions, gains = _compute_entropy_gains(self.outcomes, self.label_ids, cand_idx, unshot)
             
-            # Evaluate MAX over outcomes using TT
-            worst_child = -INF
-            for v in (0, 1, 2):
-                mask = col == v
-                if not bool(mask.any()):
-                    continue
-                cand2 = cand_idx[mask]
-                heads2 = heads_hit + (1 if v == 2 else 0)
+            if not actions:
+                return None, self._terminal_steps(cand_idx, unshot, heads_hit)
+            
+            # 根据剩余候选数量决定 top_k
+            current_top_k = self.cfg.top_k
+            if cand_idx.size <= self.cfg.expand_threshold:
+                current_top_k = self.cfg.expanded_top_k
+            
+            top_actions = actions[:min(current_top_k, len(actions))]
+            
+            best_action = top_actions[0]
+            best_value = float('inf')
+            
+            for action in top_actions:
+                # 对这个动作，考虑对手（max）的回合
+                _, max_value = self._minimax_max(
+                    cand_idx, unshot, heads_hit, depth, alpha, beta, action
+                )
                 
-                # Use TT to get child value (should already be cached)
-                child_key = (int(heads2), int(cand2.size), _hash_cand_idx(cand2), _pack_unshot(unshot2))
-                t_child = tt.get(child_key)
-                if t_child is None:
-                    # Fallback: search if not in TT (shouldn't happen if _search_value ran first)
-                    t_child = self._search_value(cand2, unshot2, heads2, -INF, INF, tt, counters, depth_now=int(depth_now)+2, progress=progress)
-                worst_child = max(worst_child, int(t_child))
+                if max_value < best_value:
+                    best_value = max_value
+                    best_action = action
+                
+                # Alpha-beta 剪枝
+                if best_value <= alpha:
+                    break
+                beta = min(beta, best_value)
             
-            val = 1 + int(worst_child)
-            if val < best_v:
-                best_v = int(val)
-                best_a = int(a)
+            return best_action, int(best_value)
         
-        # Build tree for the best action only
-        unshot2 = unshot.copy()
-        unshot2[int(best_a)] = False
-        col = self.outcomes[cand_idx, int(best_a)]
-        best_outcomes: list[dict[str, Any]] = []
+        else:
+            # 不应该在这里调用（max 玩家应该通过 _minimax_max 调用）
+            raise RuntimeError("Should not call _minimax with is_min_player=False")
+
+    def _minimax_max(
+        self,
+        cand_idx: np.ndarray,
+        unshot: np.ndarray,
+        heads_hit: int,
+        depth: int,
+        alpha: float,
+        beta: float,
+        action: int,
+    ) -> tuple[int, int]:
+        """
+        Max 玩家的回合：选择结果（max）
         
-        for v in (0, 1, 2):
-            mask = col == v
-            if not bool(mask.any()):
+        返回：
+        - best_outcome: 最佳结果（0/1/2）
+        - best_value: 最佳值（最大的剩余步数）
+        """
+        # 计算这个动作的三种可能结果的熵减
+        gains, outcome_orders = _compute_entropy_gains_for_action(
+            self.outcomes, self.label_ids, cand_idx, action
+        )
+        
+        best_outcome = outcome_orders[0]
+        best_value = float('-inf')
+        
+        for outcome_val in outcome_orders:
+            # 检查这个结果是否可能
+            if gains[outcome_val] == float('inf'):
                 continue
-            cand2 = cand_idx[mask]
-            heads2 = heads_hit + (1 if v == 2 else 0)
             
-            # Recursively build tree for child
-            t_child, child_tree = self._build_policy_tree(
-                cand2,
-                unshot2,
-                heads2,
-                tt,
-                counters,
-                depth_left=max(0, depth_left - 2),
-                depth_now=int(depth_now) + 2,
-                progress=progress,
+            # 过滤候选布局
+            col = self.outcomes[cand_idx, int(action)]
+            new_cand_idx = cand_idx[col == outcome_val]
+            
+            if new_cand_idx.size == 0:
+                continue
+            
+            # 更新状态
+            new_unshot = unshot.copy()
+            new_unshot[int(action)] = False
+            new_heads_hit = heads_hit + (1 if outcome_val == 2 else 0)
+            
+            # 递归调用 min 玩家
+            _, min_value = self._minimax(
+                new_cand_idx, new_unshot, new_heads_hit, depth + 1, alpha, beta, is_min_player=True
             )
-            best_outcomes.append({
-                "kind": "OBS",
-                "obs": int(v),
-                "meta": {"cand": int(cand2.size), "heads_hit": int(heads2)},
-                "value": int(1 + int(t_child)),
-                "child": child_tree,
-            })
+            
+            # 加上这一步
+            total_value = 1 + min_value
+            
+            if total_value > best_value:
+                best_value = total_value
+                best_outcome = outcome_val
+            
+            # Alpha-beta 剪枝
+            if best_value >= beta:
+                break
+            alpha = max(alpha, best_value)
         
-        node = {
-            "kind": "MIN",
-            "state_key": state_key,
-            "meta": {"cand": int(cand_idx.size), "heads_hit": int(heads_hit)},
-            "best_action": int(best_a),
-            "value": int(best_v),
-            "outcomes": best_outcomes,
-        }
-        return int(best_v), node
+        return best_outcome, int(best_value)
 
-    def choose_action(self, cand_idx: np.ndarray, unshot_actions: np.ndarray, heads_hit: int) -> int:
-        if not unshot_actions.any():
-            raise ValueError("No available actions.")
-
-        # Cache lookup
-        cache_key = _state_cache_key(heads_hit=int(heads_hit), cand_idx=cand_idx, unshot=unshot_actions, top_k=int(self.cfg.top_k))
-        self._load_cache_once()
-
-        # Fast path: check in-memory policy index
-        n = self._policy_index.get(cache_key)
-        if isinstance(n, dict) and ("best_action" in n):
-            return int(n["best_action"])
-
-        # Shortcut: if only one head-configuration remains, shoot remaining heads
+    def choose_action(
+        self,
+        cand_idx: np.ndarray,
+        unshot_actions: np.ndarray,
+        heads_hit: int,
+    ) -> int:
+        """
+        选择最佳动作。
+        使用 minimax + alpha-beta 剪枝，搜索到终止状态。
+        如果有预计算的搜索树，优先使用缓存。
+        
+        参数：
+        - cand_idx: 候选布局索引
+        - unshot_actions: 未打击的动作掩码
+        - heads_hit: 已击中的机头数量
+        
+        返回：
+        - action: 最佳动作（0-99）
+        """
+        # 如果只剩一种机头配置，直接打击剩余的机头
         possible_labels = np.unique(self.label_ids[cand_idx])
         if possible_labels.size == 1:
             heads = self.labels[int(possible_labels[0])]
             for hx, hy in heads:
                 a = int(hx) * GRID_SIZE + int(hy)
-                if bool(unshot_actions[a]):
-                    return int(a)
-
-        # Two-phase search:
-        # Phase 1: Pure value search with full TT caching
-        # Phase 2: Build policy tree only along best path (if needed)
+                if unshot_actions[a]:
+                    return a
         
-        tt: dict[tuple[int, int, bytes, bytes], int] = {}
-        counters: dict[str, Any] = {"visited": 0, "tt_hits": 0, "depth_sum": 0.0, "depth_cnt": 0}
-        progress = _Progress(cfg=self.cfg) if bool(self.cfg.progress_enabled) else None
-
-        # Phase 1: Search for optimal value (TT is heavily reused)
-        v = self._search_value(
-            cand_idx=cand_idx,
-            unshot=unshot_actions,
-            heads_hit=int(heads_hit),
-            alpha=-INF,
-            beta=INF,
-            tt=tt,
-            counters=counters,
-            depth_now=0,
-            progress=progress,
+        # 如果有预计算的搜索树，尝试从缓存中查找
+        if self._search_tree is not None:
+            state_key = self._state_key(cand_idx, unshot_actions, heads_hit)
+            if state_key in self._search_tree:
+                cached = self._search_tree[state_key]
+                return cached[0]
+        
+        # 使用 minimax + alpha-beta 剪枝，搜索到终止状态
+        best_action, best_value = self._minimax(
+            cand_idx,
+            unshot_actions,
+            heads_hit,
+            depth=0,
+            alpha=self.cfg.initial_alpha,
+            beta=self.cfg.initial_beta,
+            is_min_player=True,
         )
-
-        if bool(self.cfg.progress_enabled):
-            avg_steps = (float(counters.get("depth_sum", 0.0)) / max(1, int(counters.get("depth_cnt", 1)))) / 2.0
-            print(
-                f"\r[monkey done] visited {int(counters['visited'])}  tt {len(tt)} hits {int(counters['tt_hits'])}  "
-                f"avg_depth {avg_steps:5.2f}  value {int(v)}",
-                flush=True,
-            )
-
-        # Phase 2: Build policy tree (only if tree_log_depth > 0)
-        policy_tree = None
-        if int(self.cfg.tree_log_depth) > 0:
-            _, policy_tree = self._build_policy_tree(
-                cand_idx=cand_idx,
-                unshot=unshot_actions,
-                heads_hit=int(heads_hit),
-                tt=tt,
-                counters=counters,
-                depth_left=int(self.cfg.tree_log_depth),
-                depth_now=0,
-                progress=None,  # No progress bar for tree building
-            )
-
-        best_a = int(policy_tree["best_action"]) if isinstance(policy_tree, dict) and ("best_action" in policy_tree) else int(np.flatnonzero(unshot_actions)[0])
-
-        # Index and cache policy tree for reuse
-        self._index_policy_tree(policy_tree if isinstance(policy_tree, dict) else None)
-        self._save_cache()
-
-        return int(best_a)
+        
+        if best_action is None:
+            # 不应该发生，但如果发生了，使用贪心策略
+            actions, _ = _compute_entropy_gains(self.outcomes, self.label_ids, cand_idx, unshot_actions)
+            if actions:
+                return actions[0]
+            # 最后的备选：返回第一个未打击的格子
+            return int(np.flatnonzero(unshot_actions)[0])
+        
+        return best_action
 
     def play_one(self, env: BombPlanesEnv, *, layout: dict[str, Any], max_steps: int = 500) -> int:
+        """
+        玩一局游戏。
+        
+        返回：
+        - steps: 完成游戏所需的步数
+        """
         _, info = env.reset(layout=layout)
         steps = 0
         heads_hit = 0
 
         unshot = info["action_mask"].copy()
         cand_idx = np.arange(self.outcomes.shape[0], dtype=np.int32)
-        shot: set[tuple[int, int]] = set()
+
+        shot = set()
 
         def shoot_xy(x: int, y: int) -> GridState:
             nonlocal steps, heads_hit
@@ -616,19 +424,34 @@ class MonkeyAgent:
             return sr.info["result"]
 
         while heads_hit < 3 and steps < max_steps:
+            # 如果只剩一种机头配置，直接打击剩余的机头
+            possible_labels = np.unique(self.label_ids[cand_idx])
+            if possible_labels.size == 1:
+                heads = self.labels[int(possible_labels[0])]
+                for hx, hy in heads:
+                    if (int(hx), int(hy)) not in shot:
+                        shoot_xy(int(hx), int(hy))
+                        if heads_hit >= 3:
+                            break
+                break
+
             if not unshot.any():
                 break
 
-            a = self.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
+            # 选择动作
+            a = self.choose_action(cand_idx, unshot, heads_hit)
             x, y = divmod(int(a), GRID_SIZE)
             unshot[int(a)] = False
 
-            result = shoot_xy(int(x), int(y))
+            result = shoot_xy(x, y)
             obs_v = 2 if result == GridState.HEAD else (1 if result == GridState.BODY else 0)
 
+            # 过滤候选布局
             col = self.outcomes[cand_idx, int(a)]
             cand_idx = cand_idx[col == obs_v]
+
             if cand_idx.size == 0:
                 break
 
         return steps
+

@@ -123,14 +123,19 @@ def interactive_game(
     algo: Algo,
     *,
     monkey_cfg: MonkeyConfig | None = None,
+    monkey_precomputed: str | None = None,
 ) -> None:
     layouts = load_layouts(None)  # read from config.LAYOUT_FILE
     outcomes, label_ids, labels = build_outcome_table(layouts)
     monkey_agent = None
     if algo == "monkey":
         # Silence search-node progress output during interactive play; keep it only in precompute.py.
-        cfg = replace(MonkeyConfig(), progress_enabled=False) if monkey_cfg is None else replace(monkey_cfg, progress_enabled=False)
-        monkey_agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+        if monkey_precomputed:
+            print(f"Loading precomputed search tree from {monkey_precomputed}")
+            monkey_agent = MonkeyAgent.from_precomputed(monkey_precomputed, layouts)
+        else:
+            cfg = replace(MonkeyConfig(), progress_enabled=False) if monkey_cfg is None else replace(monkey_cfg, progress_enabled=False)
+            monkey_agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -242,6 +247,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
     ap.add_argument("--algo", choices=["id3", "monkey"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--topk", type=int, default=None, help="Monkey: override top_k (branching factor).")
+    ap.add_argument("--precomputed", type=str, default=None, help="Monkey: path to precomputed search tree file.")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
@@ -262,9 +268,16 @@ def main() -> None:
     else:
         algo = args.algo  # type: ignore[assignment]
 
+    monkey_cfg = MonkeyConfig()
+    if args.topk is not None:
+        monkey_cfg = replace(monkey_cfg, top_k=int(args.topk))
+    
+    monkey_precomputed = args.precomputed
+    
     interactive_game(
         algo=algo,
-        monkey_cfg=(MonkeyConfig(top_k=int(args.topk)) if args.topk is not None else MonkeyConfig()),
+        monkey_cfg=monkey_cfg,
+        monkey_precomputed=monkey_precomputed,
     )
 
 
