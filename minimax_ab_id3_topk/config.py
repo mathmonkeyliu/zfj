@@ -15,7 +15,7 @@ class MiniMaxABID3TopKConfig:
     # Progress estimator: est_total_nodes ≈ (top_k*3)^(avg_depth)
 
     # --- Tree logging / caching ---
-    tree_log_depth: int = 24  # plies (MIN action = 1 ply, MAX outcome = 1 ply)
+    tree_log_depth: int = 30  # plies (MIN action = 1 ply, MAX outcome = 1 ply)
 
     cache_enabled: bool = True
     cache_dir: Path = Path(".cache") / "minimax_ab_id3_topk"
