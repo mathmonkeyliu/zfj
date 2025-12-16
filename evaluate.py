@@ -107,16 +107,36 @@ def main() -> None:
         return
 
     # "柱状图" as histogram of steps
-    plt.figure(figsize=(12, 6))
-    bins = np.arange(int(steps_arr.min()), int(steps_arr.max()) + 2) - 0.5
-    plt.hist(steps_arr, bins=bins, edgecolor="black", alpha=0.75)
+    plt.figure(figsize=(14, 7))
+    
+    # 计算每个步数的频数
+    min_steps = int(steps_arr.min())
+    max_steps = int(steps_arr.max())
+    bins = np.arange(min_steps, max_steps + 2) - 0.5
+    
+    # 绘制直方图
+    counts, _, patches = plt.hist(steps_arr, bins=bins, edgecolor="black", alpha=0.75, color='steelblue')
+    
+    # 在每根柱子顶部标注数值
+    for i, (count, patch) in enumerate(zip(counts, patches)):
+        if count > 0:  # 只标注非零的柱子
+            height = patch.get_height()
+            plt.text(patch.get_x() + patch.get_width() / 2., height,
+                    f'{int(count)}',
+                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    # 均值和中位数线
     plt.axvline(mean_steps, color="red", linestyle="--", linewidth=2, label=f"Mean: {mean_steps:.2f}")
     plt.axvline(median_steps, color="green", linestyle="--", linewidth=2, label=f"Median: {median_steps:.2f}")
-    plt.title(f"Steps to hit all 3 heads ({args.method})")
-    plt.xlabel("Steps")
-    plt.ylabel("Count (layouts)")
-    plt.legend()
-    plt.grid(True, alpha=0.25)
+    
+    # 设置横坐标为整数
+    plt.xticks(range(min_steps, max_steps + 1))
+    
+    plt.title(f"Steps to hit all 3 heads ({args.method})", fontsize=14, fontweight='bold')
+    plt.xlabel("Steps", fontsize=12)
+    plt.ylabel("Count (layouts)", fontsize=12)
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.25, axis='y')
     plt.tight_layout()
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

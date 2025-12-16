@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import argparse
-import pickle
+import json
 import sys
 import time
 from pathlib import Path
@@ -156,8 +156,8 @@ def precompute_tree(
     # 创建进度跟踪器
     progress = ProgressTracker(total_nodes, top_k=cfg.top_k, enabled=cfg.progress_enabled)
     
-    # 搜索树缓存
-    search_tree: dict[tuple, tuple[int, int]] = {}
+    # 搜索树缓存（使用字符串键以提高效率和 JSON 兼容性）
+    search_tree: dict[str, tuple[int, int]] = {}
     
     # 从初始状态开始遍历
     initial_cand_idx = np.arange(len(agent.outcomes), dtype=np.int32)
@@ -216,18 +216,32 @@ def precompute_tree(
         if progress.depth_count > 0:
             print(f"平均搜索深度: {progress.depth_sum / progress.depth_count:.2f}")
         
-        # 保存搜索树
+        # 保存搜索树（转换为 JSON 兼容格式）
+        # 搜索树：dict[str, tuple[int, int]] -> dict[str, list[int, int]]
+        search_tree_serializable = {k: list(v) for k, v in search_tree.items()}
+        
         data = {
-            "config": cfg,
-            "search_tree": search_tree,
-            "initial_best_action": best_action,
-            "initial_best_value": best_value,
+            "config": {
+                "top_k": cfg.top_k,
+                "expand_threshold": cfg.expand_threshold,
+                "expanded_top_k": cfg.expanded_top_k,
+            },
+            "search_tree": search_tree_serializable,
+            "initial_best_action": int(best_action) if best_action is not None else None,
+            "initial_best_value": int(best_value),
             "tree_size": len(search_tree),
         }
         
         print(f"\n保存搜索树到: {output_path}")
-        with open(output_path, "wb") as f:
-            pickle.dump(data, f)
+        
+        # 根据文件扩展名选择格式
+        if output_path.suffix == '.json':
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        else:
+            # 默认使用 JSON，但保持 .pkl 扩展名（实际上是 JSON 格式）
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
         
         print(f"保存完成！文件大小: {output_path.stat().st_size / 1024 / 1024:.2f} MB")
         
@@ -239,7 +253,7 @@ def precompute_tree(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="预计算 Monkey agent 的搜索树")
-    parser.add_argument("--output", type=str, default="monkey_tree.pkl", help="输出文件路径")
+    parser.add_argument("--output", type=str, default="monkey_tree.json", help="输出文件路径（建议使用 .json 扩展名）")
     parser.add_argument("--top-k", type=int, default=None, help="Top-k 参数（默认从配置文件加载）")
     parser.add_argument("--expanded-top-k", type=int, default=None, help="扩展后的 Top-k 参数（默认从配置文件加载）")
     parser.add_argument("--expand-threshold", type=int, default=None, help="扩展阈值（默认从配置文件加载）")

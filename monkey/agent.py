@@ -137,7 +137,7 @@ class MonkeyAgent:
     cfg: MonkeyConfig
 
     # 搜索树缓存（可选，从 precompute 加载）
-    _search_tree: dict[tuple, tuple[int, int]] | None = None  # (state_key) -> (best_action, best_value)
+    _search_tree: dict[str, tuple[int, int]] | None = None  # (state_key) -> (best_action, best_value)
 
     @staticmethod
     def from_layouts(layouts: list[dict[str, Any]], cfg: MonkeyConfig | None = None) -> "MonkeyAgent":
@@ -149,19 +149,38 @@ class MonkeyAgent:
     @staticmethod
     def from_precomputed(precomputed_path: str | Any, layouts: list[dict[str, Any]] | None = None) -> "MonkeyAgent":
         """从预计算的搜索树加载 agent"""
-        import pickle
+        import json
         from pathlib import Path
         
         path = Path(precomputed_path) if isinstance(precomputed_path, str) else precomputed_path
-        with open(path, "rb") as f:
-            data = pickle.load(f)
+        
+        # 检查文件格式
+        if path.suffix == '.json':
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # 从 JSON 加载配置
+            cfg_dict = data.get("config", {})
+            cfg = MonkeyConfig(
+                top_k=cfg_dict.get("top_k", 3),
+                expand_threshold=cfg_dict.get("expand_threshold", 50),
+                expanded_top_k=cfg_dict.get("expanded_top_k", 5),
+                progress_enabled=False,
+            )
+            # 搜索树已经是 dict[str, list]，转换为 dict[str, tuple]
+            search_tree_raw = data.get("search_tree", {})
+            search_tree = {k: tuple(v) for k, v in search_tree_raw.items()}
+        else:
+            # 兼容旧的 pickle 格式
+            import pickle
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            cfg = data.get("config", MonkeyConfig())
+            search_tree = data.get("search_tree", None)
         
         if layouts is None:
             layouts = load_layouts(None)
         
         outcomes, label_ids, labels = build_outcome_table(layouts)
-        cfg = data.get("config", MonkeyConfig())
-        search_tree = data.get("search_tree", None)
         
         agent = MonkeyAgent(
             outcomes=outcomes,
@@ -173,9 +192,21 @@ class MonkeyAgent:
         
         return agent
 
-    def _state_key(self, cand_idx: np.ndarray, unshot: np.ndarray, heads_hit: int) -> tuple:
-        """生成状态的唯一标识（用于缓存）"""
-        return (tuple(sorted(cand_idx.tolist())), tuple(unshot.tolist()), heads_hit)
+    def _state_key(self, cand_idx: np.ndarray, unshot: np.ndarray, heads_hit: int) -> str:
+        """生成状态的唯一标识（用于缓存），使用高效的哈希方法"""
+        # 使用 xxhash 或 hashlib 生成快速哈希
+        # 对 cand_idx 排序后生成哈希（确保相同候选集产生相同键）
+        import hashlib
+        
+        # 对候选索引排序并转为 bytes
+        sorted_cand = np.sort(cand_idx)
+        cand_hash = hashlib.blake2b(sorted_cand.tobytes(), digest_size=16).hexdigest()
+        
+        # unshot 转为 bytes
+        unshot_hash = hashlib.blake2b(unshot.tobytes(), digest_size=16).hexdigest()
+        
+        # 组合成字符串键
+        return f"{cand_hash}_{unshot_hash}_{heads_hit}"
 
     def _is_terminal(self, heads_hit: int, cand_idx: np.ndarray) -> bool:
         """判断是否达到终止状态"""
