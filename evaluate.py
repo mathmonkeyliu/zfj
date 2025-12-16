@@ -11,8 +11,6 @@ import numpy as np
 
 from environment import BombPlanesEnv, load_layouts
 from id3 import ID3Agent
-from elim import ElimAgent
-from mcts import MCTSAgent, MCTSConfig
 from monkey import MonkeyAgent, MonkeyConfig
 
 try:
@@ -23,17 +21,15 @@ except ModuleNotFoundError:  # pragma: no cover
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "elim", "mcts", "monkey"], default="id3")
-    ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (defaults to config.LAYOUT_FILE).")
+    ap.add_argument("--method", choices=["id3", "monkey"], default="id3")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
-    ap.add_argument("--mcts-sims", type=int, default=None, help="MCTS: simulations per move (overrides mcts/config.py default).")
-    ap.add_argument("--mcts-depth", type=int, default=None, help="MCTS: max search depth (overrides mcts/config.py default).")
+    ap.add_argument("--topk", type=int, default=None, help="Monkey: override top_k (branching factor).")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
     # Candidate universe for the online algorithm: all layouts from file.
-    all_layouts = load_layouts(args.layouts_file)
+    all_layouts = load_layouts(None)  # read from config.LAYOUT_FILE
 
     # Evaluation set: default = all layouts; or a prefix via --limit for quick tests.
     layouts = all_layouts
@@ -44,34 +40,20 @@ def main() -> None:
 
     if args.method == "id3":
         agent = ID3Agent.from_layouts(all_layouts)
-    elif args.method == "monkey":
-        # Silence search-node progress output during evaluation; keep it only in precompute.py.
-        cfg = replace(MonkeyConfig(), progress_enabled=False)
-        agent = MonkeyAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
     else:
-        if args.method == "elim":
-            agent = ElimAgent.from_layouts(all_layouts)
-        else:
-            cfg = MCTSConfig()
-            if args.mcts_sims is not None:
-                cfg = MCTSConfig(
-                    num_simulations=int(args.mcts_sims),
-                    max_depth=cfg.max_depth,
-                    c_ucb=cfg.c_ucb,
-                    progressive_widening_k=cfg.progressive_widening_k,
-                    rollout_depth=cfg.rollout_depth,
-                    seed=cfg.seed,
-                )
-            if args.mcts_depth is not None:
-                cfg = MCTSConfig(
-                    num_simulations=cfg.num_simulations,
-                    max_depth=int(args.mcts_depth),
-                    c_ucb=cfg.c_ucb,
-                    progressive_widening_k=cfg.progressive_widening_k,
-                    rollout_depth=cfg.rollout_depth,
-                    seed=cfg.seed,
-                )
-            agent = MCTSAgent.from_layouts(all_layouts, cfg=cfg)
+        # Silence search-node progress output during evaluation; keep it only in precompute.py.
+        cfg0 = MonkeyConfig()
+        if args.topk is not None:
+            cfg0 = MonkeyConfig(
+                top_k=int(args.topk),
+                progress_enabled=cfg0.progress_enabled,
+                progress_every_sec=cfg0.progress_every_sec,
+                tree_log_depth=cfg0.tree_log_depth,
+                cache_enabled=cfg0.cache_enabled,
+                cache_dir=cfg0.cache_dir,
+            )
+        cfg = replace(cfg0, progress_enabled=False)
+        agent = MonkeyAgent.from_layouts(all_layouts, top_k=int(cfg.top_k), cfg=cfg)
 
     env = BombPlanesEnv(layouts=all_layouts, reward_mode="sparse", illegal_action="raise", max_steps=500)
 

@@ -17,14 +17,14 @@ from monkey import MonkeyAgent, MonkeyConfig
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Precompute (warm) monkey minimax cache for a belief-state.")
-    ap.add_argument("--layouts-file", default=None, help="Path to layouts.jsonl (default from config.LAYOUT_FILE).")
+    ap.add_argument("--topk", type=int, default=None, help="Override MonkeyConfig.top_k (branching factor).")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
-    layouts = load_layouts(args.layouts_file)
+    layouts = load_layouts(None)  # read from config.LAYOUT_FILE
     outcomes, label_ids, labels = build_outcome_table(layouts)
 
-    cfg = MonkeyConfig()
+    cfg = MonkeyConfig(top_k=int(args.topk)) if args.topk is not None else MonkeyConfig()
     agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
 
     cand_idx = np.arange(outcomes.shape[0], dtype=np.int32)
