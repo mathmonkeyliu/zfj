@@ -1,3 +1,5 @@
+# 炸飞机/飞机大战 游戏AI
+
 [![GitHub Repo](https://img.shields.io/badge/GitHub-mathmonkeyliu%2Fzfj-181717?style=flat-square&logo=github)](https://github.com/mathmonkeyliu/zfj)
 [![Stars](https://img.shields.io/github/stars/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/stargazers)
 [![Forks](https://img.shields.io/github/forks/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/network/members)
@@ -5,9 +7,7 @@
 [![Last Commit](https://img.shields.io/github/last-commit/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/commits/main)
 [![Python](https://img.shields.io/badge/Python-%3E%3D3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://github.com/mathmonkeyliu/zfj)
 
-# 炸飞机/飞机大战 游戏AI
-
-**炸飞机**（又称**飞机大战**）游戏的AI。
+本项目是**炸飞机**（又称**飞机大战**）游戏的AI。
 
 ## 游玩
 
@@ -103,11 +103,22 @@ python evaluate.py --method id3
 
 ## AI性能
 
-我们使用击落全部飞机所用步数的中位数作为性能评估标准。
+我们使用击落全部飞机所用步数的**中位数**和平均数作为性能评估标准。
 
 ### ID3
 ![ID3](evaluation_id3.png)
-中位数为**13.00**
+平均数为**12.85**，中位数为**13.00**。
+
+### Monkey Method
+
+#### Topk = 2, 3; num = 10
+
+这是一个简单的超参数设置，实验结果如下：
+
+![Monkey](evaluation_monkey_2_10_3.png)
+平均数为**12.81**，中位数为**13.00**。
+
+可以看出最差情况为19步。（**19**，又是谁的回忆呢）
 
 ### 其它
 
