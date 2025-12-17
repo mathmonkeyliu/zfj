@@ -1,6 +1,4 @@
+from .monkey_config import MonkeyConfig
 from .agent import MonkeyAgent
-from .config import MonkeyConfig
 
-
-__all__ = ["MonkeyAgent", "MonkeyConfig"]
 

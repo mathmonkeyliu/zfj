@@ -42,13 +42,25 @@ def main() -> None:
     if args.method == "id3":
         agent = ID3Agent.from_layouts(all_layouts)
     else:
+        # Prefer precomputed policy if present (evaluation must be fast).
+        precomputed_path = args.precomputed
+        if precomputed_path is None:
+            for cand in ("monkey_policy.json", "monkey/policy.json"):
+                if Path(cand).exists():
+                    precomputed_path = cand
+                    break
+
         # Silence search-node progress output during evaluation; keep it only in precompute.py.
-        if args.precomputed:
+        if precomputed_path:
             # 使用预计算的搜索树
-            print(f"Loading precomputed search tree from {args.precomputed}")
-            agent = MonkeyAgent.from_precomputed(args.precomputed, all_layouts)
+            print(f"Loading precomputed search tree from {precomputed_path}")
+            agent = MonkeyAgent.from_precomputed(precomputed_path, all_layouts)
         else:
             # 在线计算
+            print(
+                "WARNING: monkey without --precomputed will be very slow. "
+                "Run: python monkey/precompute.py --out monkey_policy.json"
+            )
             cfg = MonkeyConfig()
             if args.topk is not None:
                 cfg = replace(cfg, top_k=int(args.topk))

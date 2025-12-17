@@ -17,6 +17,7 @@ from dataclasses import replace
 import os
 import time
 from typing import Literal
+from pathlib import Path
 
 import numpy as np
 
@@ -130,12 +131,19 @@ def interactive_game(
     monkey_agent = None
     if algo == "monkey":
         # Silence search-node progress output during interactive play; keep it only in precompute.py.
-        if monkey_precomputed:
-            print(f"Loading precomputed search tree from {monkey_precomputed}")
-            monkey_agent = MonkeyAgent.from_precomputed(monkey_precomputed, layouts)
+        precomputed_path = monkey_precomputed
+        if precomputed_path is None:
+            for cand in ("monkey_policy.json", "monkey/policy.json"):
+                if Path(cand).exists():
+                    precomputed_path = cand
+                    break
+        if precomputed_path:
+            print(f"Loading precomputed search tree from {precomputed_path}")
+            monkey_agent = MonkeyAgent.from_precomputed(precomputed_path, layouts)
         else:
             cfg = replace(MonkeyConfig(), progress_enabled=False) if monkey_cfg is None else replace(monkey_cfg, progress_enabled=False)
             monkey_agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
+        monkey_agent.reset_session()
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -230,6 +238,9 @@ def interactive_game(
             heads_hit += 1
 
         unshot[a] = False
+        if algo == "monkey":
+            assert monkey_agent is not None
+            monkey_agent.observe(int(a), int(obs_v))
 
         # filter candidate layouts by consistency with this observation
         col = outcomes[cand_idx, int(a)]
