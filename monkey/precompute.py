@@ -41,6 +41,13 @@ def main() -> None:
     ap.add_argument("--topk-small", type=int, default=None, help="Override config.top_k_when_small_candidates")
     ap.add_argument("--small-threshold", type=int, default=None, help="Override config.small_candidates_threshold")
     ap.add_argument("--depth-hint", type=int, default=None, help="Progress estimate depth hint (for (topk*3)^(depth/2)).")
+    ap.add_argument(
+        "--scope",
+        type=str,
+        default="reachable",
+        choices=("reachable", "full"),
+        help="Export scope: 'reachable' only keeps MIN states reachable by always following the best action; 'full' exports all cached states visited during search.",
+    )
     args = ap.parse_args()
 
     layouts = load_layouts(None)
@@ -81,15 +88,82 @@ def main() -> None:
     finally:
         progress.done()
 
+    def _collect_reachable_min_states_policy(ctx: SearchContext) -> dict[str, int]:
+        """
+        从 root 出发，每个 MIN 状态都选择其“最优动作”，并对该动作所有可能反馈分支继续，
+        收集所有可达的 MIN 状态 policy（state_hash -> action_id）。
+
+        注意：
+        - 只收集需要决策的 MIN 状态（终局/label 唯一时不需要下一步动作，因此不会写入 policy）。
+        - 若由于 alpha-beta 剪枝导致某个可达状态未出现在 best_action_cache，会按需补算一次 minimax。
+        """
+        stack: list[tuple[np.ndarray, np.ndarray, dict[int, int]]] = [
+            (np.arange(ctx.outcomes.shape[0], dtype=np.int32), np.ones((GRID_SIZE * GRID_SIZE,), dtype=bool), {}),
+        ]
+        seen: set[str] = set()
+        out_policy: dict[str, int] = {}
+
+        while stack:
+            cand_i, unshot_i, shots_i = stack.pop()
+            h = state_hash_hex(shots_i)
+            if h in seen:
+                continue
+            seen.add(h)
+
+            # terminal: 3 heads hit
+            heads_hit = sum(1 for v in shots_i.values() if int(v) == 2)
+            if heads_hit >= 3:
+                continue
+
+            # terminal: label fixed
+            possible_labels = np.unique(ctx.label_ids[cand_i])
+            if possible_labels.size == 1:
+                continue
+
+            if not bool(unshot_i.any()):
+                continue
+
+            a = ctx.best_action_cache.get(h)
+            if a is None or (not bool(unshot_i[int(a)])):
+                # 补算该状态最优动作（不会影响 correctness，只是补齐缓存）
+                solve_minimax_and_record_best_action(ctx, cand_i, unshot_i, dict(shots_i), depth=0)
+                a = ctx.best_action_cache.get(h)
+            if a is None:
+                continue
+
+            a = int(a)
+            out_policy[h] = a
+
+            unshot2 = unshot_i.copy()
+            unshot2[a] = False
+            col = ctx.outcomes[cand_i, a]
+            for v in (0, 1, 2):
+                sub = cand_i[col == int(v)]
+                if sub.size == 0:
+                    continue
+                shots2 = dict(shots_i)
+                shots2[a] = int(v)
+                stack.append((sub, unshot2, shots2))
+
+        return out_policy
+
+    if str(args.scope) == "full":
+        policy_action: dict[str, int] = {str(h): int(a) for h, a in ctx.best_action_cache.items()}
+        policy_scope = "full"
+    else:
+        policy_action = _collect_reachable_min_states_policy(ctx)
+        policy_scope = "reachable"
+
     # 导出：hash -> (x,y)
     policy_xy: dict[str, list[int]] = {}
-    for h, a in ctx.best_action_cache.items():
+    for h, a in policy_action.items():
         x, y = divmod(int(a), GRID_SIZE)
         policy_xy[str(h)] = [int(x), int(y)]
 
     out = {
         "version": 1,
         "config": asdict(cfg),
+        "scope": policy_scope,
         "note": "policy maps state_hash (shots list hashed) -> best next move (x,y). outcome: 0=MISS,1=BODY,2=HEAD",
         "root": {"state_hash": state_hash_hex({}), "minimax_value": int(v0)},
         "policy": policy_xy,
