@@ -1,4 +1,4 @@
-# 炸飞机/飞机大战 游戏AI
+# 炸飞机/飞机大战 游戏AI （可在线使用）
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-mathmonkeyliu%2Fzfj-181717?style=flat-square&logo=github)](https://github.com/mathmonkeyliu/zfj)
 [![Stars](https://img.shields.io/github/stars/mathmonkeyliu/zfj?style=flat-square)](https://github.com/mathmonkeyliu/zfj/stargazers)
@@ -8,6 +8,10 @@
 [![Python](https://img.shields.io/badge/Python-%3E%3D3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://github.com/mathmonkeyliu/zfj)
 
 本项目是**炸飞机**（又称**飞机大战**）游戏的AI。
+
+## 在线使用
+
+[https://www.mathmonkeyliu.fun/static/games/zfj/](https://www.mathmonkeyliu.fun/static/games/zfj/)
 
 ## 游玩
 
