@@ -24,6 +24,7 @@ import numpy as np
 from config import GRID_SIZE, GridState
 from environment import build_outcome_table, load_layouts
 from monkey import MonkeyAgent, MonkeyConfig
+from min_avg import MinAvgAgent, MinAvgConfig
 
 
 # --- ANSI colors ---
@@ -35,7 +36,7 @@ C_YELLOW = "\033[93m"  # suggestion
 C_BLUE = "\033[94m"  # frame
 
 
-Algo = Literal["id3", "monkey"]
+Algo = Literal["id3", "monkey", "min_avg"]
 
 
 def clear_screen() -> None:
@@ -125,6 +126,8 @@ def interactive_game(
     *,
     monkey_cfg: MonkeyConfig | None = None,
     monkey_precomputed: str | None = None,
+    min_avg_cfg: MinAvgConfig | None = None,
+    min_avg_precomputed: str | None = None,
 ) -> None:
     layouts = load_layouts(None)  # read from config.LAYOUT_FILE
     outcomes, label_ids, labels = build_outcome_table(layouts)
@@ -144,6 +147,20 @@ def interactive_game(
             cfg = replace(MonkeyConfig(), progress_enabled=False) if monkey_cfg is None else replace(monkey_cfg, progress_enabled=False)
             monkey_agent = MonkeyAgent(outcomes=outcomes, label_ids=label_ids, labels=labels, cfg=cfg)
         monkey_agent.reset_session()
+    min_avg_agent = None
+    if algo == "min_avg":
+        precomputed_path = min_avg_precomputed
+        if precomputed_path is None:
+            for cand in ("min_avg_policy.json", "min_avg/policy.json"):
+                if Path(cand).exists():
+                    precomputed_path = cand
+                    break
+        if precomputed_path:
+            print(f"Loading precomputed min_avg policy from {precomputed_path}")
+            min_avg_agent = MinAvgAgent.from_precomputed(precomputed_path, layouts, cfg=min_avg_cfg)
+        else:
+            cfg = MinAvgConfig() if min_avg_cfg is None else min_avg_cfg
+            min_avg_agent = MinAvgAgent.from_layouts(layouts, cfg=cfg)
 
     # board_state[x][y] where x=row, y=col
     board_state = [[GridState.UNKNOWN for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
@@ -189,9 +206,17 @@ def interactive_game(
                 break
             if algo == "id3":
                 a = _best_action_id3(outcomes, label_ids, cand_idx, unshot)
-            else:
+            elif algo == "monkey":
                 assert monkey_agent is not None
                 a = monkey_agent.choose_action(cand_idx=cand_idx, unshot_actions=unshot, heads_hit=heads_hit)
+            else:
+                assert min_avg_agent is not None
+                a = min_avg_agent.choose_action(
+                    board_state=board_state,
+                    cand_idx=cand_idx,
+                    unshot_actions=unshot,
+                    heads_hit=heads_hit,
+                )
             suggestion = divmod(int(a), GRID_SIZE)  # (row, col)
         calc_time = time.time() - start_time
 
@@ -256,9 +281,11 @@ def interactive_game(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Interactive Bombing Planes: you provide outcomes, AI suggests next move.")
-    ap.add_argument("--algo", choices=["id3", "monkey"], default=None, help="Algorithm to use (or choose interactively).")
+    ap.add_argument("--algo", choices=["id3", "monkey", "min_avg"], default=None, help="Algorithm to use (or choose interactively).")
     ap.add_argument("--topk", type=int, default=None, help="Monkey: override top_k (branching factor).")
     ap.add_argument("--precomputed", type=str, default=None, help="Monkey: path to precomputed search tree file.")
+    ap.add_argument("--min-avg-topk", type=int, default=None, help="min_avg: override top_k (branching factor).")
+    ap.add_argument("--min-avg-precomputed", type=str, default=None, help="min_avg: path to precomputed policy file.")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
@@ -267,15 +294,18 @@ def main() -> None:
         print("请选择算法：")
         print("  1) ID3 (信息增益)")
         print("  2) Monkey (minimax+alpha-beta：每步用 ID3 top-k 限制分支，DFS 到终局算最坏剩余步数)")
+        print("  3) min_avg (贪心搜索：每步选平均剩余步数最少的动作)")
         try:
-            c = input("输入 1/2 > ").strip()
+            c = input("输入 1/2/3 > ").strip()
         except EOFError:
             print("\nEOF received, exiting.")
             return
         if c == "1":
             algo = "id3"
-        else:
+        elif c == "2":
             algo = "monkey"
+        else:
+            algo = "min_avg"
     else:
         algo = args.algo  # type: ignore[assignment]
 
@@ -284,11 +314,18 @@ def main() -> None:
         monkey_cfg = replace(monkey_cfg, top_k=int(args.topk))
     
     monkey_precomputed = args.precomputed
+
+    min_avg_cfg = MinAvgConfig()
+    if args.min_avg_topk is not None:
+        min_avg_cfg = MinAvgConfig(top_k=int(args.min_avg_topk))
+    min_avg_precomputed = args.min_avg_precomputed
     
     interactive_game(
         algo=algo,
         monkey_cfg=monkey_cfg,
         monkey_precomputed=monkey_precomputed,
+        min_avg_cfg=min_avg_cfg,
+        min_avg_precomputed=min_avg_precomputed,
     )
 
 

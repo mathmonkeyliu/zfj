@@ -3,6 +3,7 @@ from enum import Enum, auto
 
 GRID_SIZE = 10
 LAYOUT_FILE = "layouts.jsonl"
+MIN_AVG_TOPK = 1
 
 # Coordinate convention (IMPORTANT):
 # A point is (x, y) where:

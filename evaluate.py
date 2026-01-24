@@ -12,6 +12,7 @@ import numpy as np
 from environment import BombPlanesEnv, load_layouts
 from id3 import ID3Agent
 from monkey import MonkeyAgent, MonkeyConfig
+from min_avg import MinAvgAgent, MinAvgConfig
 
 try:
     import matplotlib.pyplot as plt  # type: ignore
@@ -21,11 +22,13 @@ except ModuleNotFoundError:  # pragma: no cover
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Evaluate a method across all layouts (metric: steps to hit all 3 heads).")
-    ap.add_argument("--method", choices=["id3", "monkey"], default="id3")
+    ap.add_argument("--method", choices=["id3", "monkey", "min_avg"], default="id3")
     ap.add_argument("--limit", type=int, default=None, help="Optional limit on number of layouts to evaluate.")
     ap.add_argument("--out", default=None, help="Output png path.")
     ap.add_argument("--topk", type=int, default=None, help="Monkey: override top_k (branching factor).")
     ap.add_argument("--precomputed", type=str, default=None, help="Monkey: path to precomputed search tree file.")
+    ap.add_argument("--min-avg-topk", type=int, default=None, help="min_avg: override top_k (branching factor).")
+    ap.add_argument("--min-avg-precomputed", type=str, default=None, help="min_avg: path to precomputed policy file.")
     # monkey is configured via monkey/config.py (edit that file to tune).
     args = ap.parse_args()
 
@@ -41,7 +44,7 @@ def main() -> None:
 
     if args.method == "id3":
         agent = ID3Agent.from_layouts(all_layouts)
-    else:
+    elif args.method == "monkey":
         # Prefer precomputed policy if present (evaluation must be fast).
         precomputed_path = args.precomputed
         if precomputed_path is None:
@@ -66,6 +69,22 @@ def main() -> None:
                 cfg = replace(cfg, top_k=int(args.topk))
             cfg = replace(cfg, progress_enabled=False)
             agent = MonkeyAgent.from_layouts(all_layouts, cfg=cfg)
+    else:
+        precomputed_path = args.min_avg_precomputed
+        if precomputed_path is None:
+            for cand in ("min_avg_policy.json", "min_avg/policy.json"):
+                if Path(cand).exists():
+                    precomputed_path = cand
+                    break
+        cfg = MinAvgConfig()
+        if args.min_avg_topk is not None:
+            cfg = MinAvgConfig(top_k=int(args.min_avg_topk), progress_enabled=cfg.progress_enabled, progress_every=cfg.progress_every)
+        if precomputed_path:
+            print(f"Loading precomputed min_avg policy from {precomputed_path}")
+            agent = MinAvgAgent.from_precomputed(precomputed_path, all_layouts, cfg=cfg)
+        else:
+            print("WARNING: min_avg without --min-avg-precomputed can be very slow.")
+            agent = MinAvgAgent.from_layouts(all_layouts, cfg=cfg)
 
     env = BombPlanesEnv(layouts=all_layouts, reward_mode="sparse", illegal_action="raise", max_steps=500)
 
