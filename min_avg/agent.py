@@ -51,6 +51,7 @@ def _rank_actions_id3(
         head_prob = float(outcome_counts[2] / n)
         scored.append((gain, head_prob, int(a)))
 
+    # 排序：增益大优先，增益相同则击中机头概率大优先
     scored.sort(key=lambda t: (-t[0], -t[1], t[2]))
     return [a for _, __, a in scored]
 
@@ -112,7 +113,7 @@ def _board_from_state(board_state: list[list[GridState]] | np.ndarray) -> np.nda
 class MinAvgConfig:
     top_k: int = MIN_AVG_TOPK
     progress_enabled: bool = True
-    progress_every: int = 2000
+    progress_every: int = 5000
 
 
 @dataclass
@@ -148,91 +149,172 @@ class MinAvgPlanner:
         self.label_ids = label_ids
         self.labels = labels
         self.cfg = cfg
-        self.cache: dict[str, tuple[int, int, int]] = {}
-        self.policy: dict[str, int] = {}
-        self._visited = 0
+        # 运行时缓存：避免重复计算相同棋盘状态的最优解
+        # Key: board_hex, Value: (best_action, total_steps, total_count, policy_dict)
+        self.cache: dict[str, tuple[int, int, int, dict[str, int]]] = {}
+        self._visited_nodes = 0
 
     def _progress(self) -> None:
         if not self.cfg.progress_enabled:
             return
-        self._visited += 1
-        if self._visited % self.cfg.progress_every == 0:
-            print(f"[min_avg] visited states: {self._visited} | policy size: {len(self.policy)}")
+        self._visited_nodes += 1
+        if self._visited_nodes % self.cfg.progress_every == 0:
+            print(f"[min_avg] visited nodes: {self._visited_nodes} | cache size: {len(self.cache)}")
 
-    def search(self, board: np.ndarray, cand_idx: np.ndarray) -> tuple[int, int, int]:
-        key = _board_to_key(board)
-        cached = self.cache.get(key)
-        if cached is not None:
-            return cached
-
+    def search_state(self, board: np.ndarray, cand_idx: np.ndarray) -> tuple[int, int, int, dict[str, int]]:
+        """
+        状态节点搜索：
+        1. 检查缓存
+        2. 检查终止条件
+        3. 选 TopK 动作，调用 search_action
+        4. 选最优动作，只保留该动作的策略
+        5. 返回 (best_action, best_total_steps, total_count, best_policy)
+        """
         self._progress()
+        
+        # 1. 缓存检查
+        key = _board_to_key(board)
+        if key in self.cache:
+            return self.cache[key]
 
         total_count = int(cand_idx.size)
         if total_count == 0:
-            result = (-1, 0, 0)
-            self.cache[key] = result
-            return result
+            # 没有任何可能的布局 -> 权重为0
+            return (-1, 0, 0, {})
 
+        # 2. 终止条件：检查是否只剩一种机头布局
+        # 注意：只看 label_ids（机头位置），不看机身方向，因为只要机头确定，后续步骤就是点机头
+        possible_labels = np.unique(self.label_ids[cand_idx])
+        
         heads_hit = int((board == 3).sum())
         if heads_hit >= 3:
-            result = (-1, 0, total_count)
-            self.cache[key] = result
-            return result
+            # 已经全部击中
+            return (-1, 0, total_count, {})
 
-        possible_labels = np.unique(self.label_ids[cand_idx])
         if possible_labels.size == 1:
+            # 既然只剩一种机头布局，剩下的步数就是还没被击中的机头数量
             heads = self.labels[int(possible_labels[0])]
             remaining = [(int(hx), int(hy)) for hx, hy in heads if board[int(hx), int(hy)] != 3]
+            
             if not remaining:
-                result = (-1, 0, total_count)
-                self.cache[key] = result
-                return result
-            a = min(hx * GRID_SIZE + hy for hx, hy in remaining)
-            total_steps = total_count * len(remaining)
-            result = (a, total_steps, total_count)
-            self.cache[key] = result
-            self.policy[key] = int(a)
-            return result
+                # 理论上应该在 heads_hit >= 3 处拦截，但也可能这里为空
+                return (-1, 0, total_count, {})
+            
+            # 构造一个必然的策略：按顺序点完剩余机头
+            # 这部分策略也需要记录，否则交互时到了这一步不知道该点哪里
+            policy: dict[str, int] = {}
+            temp_board = board.copy()
+            # 为了确定性，排序
+            sorted_remaining = sorted(remaining)
+            
+            # 累加步数：
+            # 第1个剩余机头：花费 1 步，剩余 steps-1
+            # ...
+            # 这里简化计算：每个布局都要走 len(remaining) 步才能把所有头打完
+            # 所以总步数 = total_count * len(remaining)
+            steps_needed = len(sorted_remaining)
+            total_steps = total_count * steps_needed
+            
+            # 生成这一串动作的策略
+            # 注意：这里我们只生成链条，不需要递归搜索，因为结果是确定的（必然是 HEAD）
+            for i, (hx, hy) in enumerate(sorted_remaining):
+                act = int(hx * GRID_SIZE + hy)
+                pol_key = _board_to_key(temp_board)
+                policy[pol_key] = act
+                temp_board[hx, hy] = 3 # 模拟击中
+            
+            # 返回第一个动作作为 best_action
+            first_action = int(sorted_remaining[0][0] * GRID_SIZE + sorted_remaining[0][1])
+            res = (first_action, int(total_steps), total_count, policy)
+            self.cache[key] = res
+            return res
 
         unshot = board.reshape(-1) == 0
         if not unshot.any():
-            result = (-1, 0, total_count)
-            self.cache[key] = result
-            return result
+            # 没有格子可点了，异常情况
+            return (-1, 0, total_count, {})
 
+        # 3. 选择 TopK 动作
         ranked = _rank_actions_id3(self.outcomes, self.label_ids, cand_idx, unshot)
         ranked = _dedupe_rotations(ranked, GRID_SIZE)
         top_k = max(1, int(self.cfg.top_k))
         ranked = ranked[:top_k]
+        
         if not ranked:
-            result = (-1, 0, total_count)
-            self.cache[key] = result
-            return result
+            return (-1, 0, total_count, {})
 
-        best_action = int(ranked[0])
-        best_total_steps = float("inf")
+        best_action = -1
+        best_avg = float("inf")
+        best_total_steps = 0
+        best_policy: dict[str, int] = {}
 
+        # 遍历动作，寻找最小平均步数
         for a in ranked:
             a = int(a)
-            total_steps = 0
-            for obs_v in (0, 1, 2):
-                mask = self.outcomes[cand_idx, a] == obs_v
-                if not mask.any():
-                    continue
-                child_idx = cand_idx[mask]
-                child_board = board.copy()
-                child_board.reshape(-1)[a] = obs_v + 1
-                _, child_total_steps, _ = self.search(child_board, child_idx)
-                total_steps += int(child_total_steps)
-            total_steps += total_count
-            if total_steps < best_total_steps:
-                best_total_steps = float(total_steps)
-                best_action = int(a)
+            # 调用“动作节点”逻辑
+            # 返回该动作下的 (total_remaining_steps, count, policy)
+            # 注意：search_action 返回的 steps 是该动作之后的步数总和
+            act_steps, act_count, act_policy = self.search_action(board, cand_idx, a)
+            
+            # 当前状态节点选择动作 a，意味着所有 total_count 个布局都要走这一步
+            # 所以总消耗 = 之后的消耗 + 当前这一步(每个布局1步 * total_count)
+            current_total = act_steps + total_count
+            
+            # 计算平均步数
+            # 注意：total_count 应该等于 act_count（除非有的分支没布局，但 sum 应该相等）
+            if total_count > 0:
+                avg = current_total / total_count
+            else:
+                avg = float("inf")
 
-        result = (best_action, int(best_total_steps), total_count)
-        self.cache[key] = result
-        self.policy[key] = int(best_action)
-        return result
+            if avg < best_avg:
+                best_avg = avg
+                best_action = a
+                best_total_steps = current_total
+                best_policy = act_policy
+
+        # 4. 记录最优策略
+        if best_action != -1:
+            best_policy[key] = best_action
+        
+        res = (best_action, int(best_total_steps), total_count, best_policy)
+        self.cache[key] = res
+        return res
+
+    def search_action(self, board: np.ndarray, cand_idx: np.ndarray, action: int) -> tuple[int, int, dict[str, int]]:
+        """
+        动作节点搜索：
+        1. 尝试 3 种结果 (MISS, BODY, HEAD)
+        2. 递归调用 search_state
+        3. 聚合结果 (total_steps, total_count, policy)
+        """
+        total_steps = 0
+        total_count = 0
+        combined_policy: dict[str, int] = {}
+
+        for obs_v in (0, 1, 2): # MISS, BODY, HEAD
+            # 筛选符合该结果的布局
+            mask = self.outcomes[cand_idx, action] == obs_v
+            if not mask.any():
+                continue
+            
+            sub_cand_idx = cand_idx[mask]
+            
+            # 更新棋盘状态
+            # board值: 0=Unknown, 1=Miss, 2=Body, 3=Head
+            # obs_v: 0=Miss, 1=Body, 2=Head
+            # 对应关系: board = obs_v + 1
+            next_board = board.copy()
+            next_board.reshape(-1)[action] = obs_v + 1
+            
+            # 递归搜索子状态
+            _, sub_steps, sub_count, sub_policy = self.search_state(next_board, sub_cand_idx)
+            
+            total_steps += sub_steps
+            total_count += sub_count
+            combined_policy.update(sub_policy)
+
+        return total_steps, total_count, combined_policy
 
 
 @dataclass
@@ -280,7 +362,8 @@ class MinAvgAgent:
             return int(self.policy.policy[key])
 
         planner = self._planner_for_fallback()
-        best_action, _, _ = planner.search(board, cand_idx)
+        # 注意：这里直接调用 search_state，它会进行递归搜索
+        best_action, _, _, _ = planner.search_state(board, cand_idx)
         if best_action >= 0:
             return int(best_action)
 
