@@ -36,21 +36,22 @@ def main() -> None:
     print(f"Starting precompute with {len(layouts)} layouts, top_k={cfg.top_k}...")
     print(f"Note: Total nodes visited is expected to be approx 1.5x - 2x the number of layout groups (Leaves + Internal Decision Nodes).")
 
-    planner = MinAvgPlanner(outcomes, label_ids, labels, cfg)
+    global_policy: dict[str, int] = {}
+    planner = MinAvgPlanner(outcomes, label_ids, labels, cfg, global_policy)
     init_board = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.uint8)
     cand_idx = np.arange(outcomes.shape[0], dtype=np.int32)
     
     # 开始搜索
     # 搜索完成后，policy_map 中只包含最优路径上的 (state -> best_action)
-    _, total_steps, total_count, policy_map = planner.search_state(init_board, cand_idx)
+    _, total_steps, total_count = planner.search_state(init_board, cand_idx)
     
     avg_steps = total_steps / total_count if total_count > 0 else 0
     print(f"\nSearch complete.")
     print(f"Global average steps: {avg_steps:.4f}")
     print(f"Total nodes visited: {planner._visited_nodes}")
-    print(f"Policy size (states recorded): {len(policy_map)}")
+    print(f"Policy size (states recorded): {len(global_policy)}")
     
-    policy = MinAvgPolicy(policy=policy_map, grid_size=GRID_SIZE)
+    policy = MinAvgPolicy(policy=global_policy, grid_size=GRID_SIZE)
     out_path = Path(args.out)
     policy.save(out_path)
     print(f"[min_avg] policy saved to: {out_path}")

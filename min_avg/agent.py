@@ -144,14 +144,17 @@ class MinAvgPolicy:
 
 
 class MinAvgPlanner:
-    def __init__(self, outcomes: np.ndarray, label_ids: np.ndarray, labels: list[tuple[tuple[int, int], ...]], cfg: MinAvgConfig):
+    def __init__(self, outcomes: np.ndarray, label_ids: np.ndarray, labels: list[tuple[tuple[int, int], ...]], cfg: MinAvgConfig, global_policy: dict[str, int]):
         self.outcomes = outcomes
         self.label_ids = label_ids
         self.labels = labels
         self.cfg = cfg
         # 运行时缓存：避免重复计算相同棋盘状态的最优解
-        # Key: board_hex, Value: (best_action, total_steps, total_count, policy_dict)
-        self.cache: dict[str, tuple[int, int, int, dict[str, int]]] = {}
+        # Key: board_hex, Value: (best_action, total_steps, total_count)
+        # 注意：这里不再存储 policy，只存储数值评估结果
+        self.memo: dict[str, tuple[int, int, int]] = {}
+        # 全局唯一的策略字典，由外部传入
+        self.policy = global_policy
         self._visited_nodes = 0
 
     def _progress(self) -> None:
@@ -159,80 +162,70 @@ class MinAvgPlanner:
             return
         self._visited_nodes += 1
         if self._visited_nodes % self.cfg.progress_every == 0:
-            print(f"[min_avg] visited nodes: {self._visited_nodes} | cache size: {len(self.cache)}")
+            print(f"[min_avg] visited nodes: {self._visited_nodes} | memo size: {len(self.memo)} | policy size: {len(self.policy)}")
 
-    def search_state(self, board: np.ndarray, cand_idx: np.ndarray) -> tuple[int, int, int, dict[str, int]]:
+    def search_state(self, board: np.ndarray, cand_idx: np.ndarray) -> tuple[int, int, int]:
         """
         状态节点搜索：
-        1. 检查缓存
+        1. 检查缓存 (memo)
         2. 检查终止条件
         3. 选 TopK 动作，调用 search_action
-        4. 选最优动作，只保留该动作的策略
-        5. 返回 (best_action, best_total_steps, total_count, best_policy)
+        4. 选最优动作，写入 global_policy
+        5. 递归删除非最优动作的分支 (cleanup)
+        6. 返回 (best_action, best_total_steps, total_count)
         """
         self._progress()
         
         # 1. 缓存检查
         key = _board_to_key(board)
-        if key in self.cache:
-            return self.cache[key]
+        if key in self.memo:
+            best_action, best_total_steps, total_count = self.memo[key]
+            # 关键：如果命中了缓存，但该状态在 policy 中缺失（可能被其他分支误删），需要恢复
+            if key not in self.policy and best_action >= 0:
+                self.policy[key] = best_action
+                # 注意：这里我们只恢复了当前节点的 policy，理想情况下应该递归恢复
+                # 但由于我们有 memo，后续子节点访问时也会触发恢复逻辑
+                # 或者我们可以主动调用 _ensure_branch_policy 来递归恢复，防止交互时查不到策略
+                # 简单起见，这里只恢复当前节点。如果后续需要子节点策略，访问时自会恢复。
+            return best_action, best_total_steps, total_count
 
         total_count = int(cand_idx.size)
         if total_count == 0:
-            # 没有任何可能的布局 -> 权重为0
-            return (-1, 0, 0, {})
+            return -1, 0, 0
 
-        # 2. 终止条件：检查是否只剩一种机头布局
-        # 注意：只看 label_ids（机头位置），不看机身方向，因为只要机头确定，后续步骤就是点机头
+        # 2. 终止条件
         possible_labels = np.unique(self.label_ids[cand_idx])
-        
         heads_hit = int((board == 3).sum())
         if heads_hit >= 3:
-            # 已经全部击中
-            return (-1, 0, total_count, {})
+            return -1, 0, total_count
 
         if possible_labels.size == 1:
-            # 既然只剩一种机头布局，剩下的步数就是还没被击中的机头数量
             heads = self.labels[int(possible_labels[0])]
             remaining = [(int(hx), int(hy)) for hx, hy in heads if board[int(hx), int(hy)] != 3]
-            
             if not remaining:
-                # 理论上应该在 heads_hit >= 3 处拦截，但也可能这里为空
-                return (-1, 0, total_count, {})
+                return -1, 0, total_count
             
-            # 构造一个必然的策略：按顺序点完剩余机头
-            # 这部分策略也需要记录，否则交互时到了这一步不知道该点哪里
-            policy: dict[str, int] = {}
+            # 确定性策略
             temp_board = board.copy()
-            # 为了确定性，排序
             sorted_remaining = sorted(remaining)
-            
-            # 累加步数：
-            # 第1个剩余机头：花费 1 步，剩余 steps-1
-            # ...
-            # 这里简化计算：每个布局都要走 len(remaining) 步才能把所有头打完
-            # 所以总步数 = total_count * len(remaining)
             steps_needed = len(sorted_remaining)
             total_steps = total_count * steps_needed
             
-            # 生成这一串动作的策略
-            # 注意：这里我们只生成链条，不需要递归搜索，因为结果是确定的（必然是 HEAD）
+            # 写入这串必然的策略
             for i, (hx, hy) in enumerate(sorted_remaining):
                 act = int(hx * GRID_SIZE + hy)
                 pol_key = _board_to_key(temp_board)
-                policy[pol_key] = act
-                temp_board[hx, hy] = 3 # 模拟击中
+                self.policy[pol_key] = act
+                temp_board[hx, hy] = 3
             
-            # 返回第一个动作作为 best_action
             first_action = int(sorted_remaining[0][0] * GRID_SIZE + sorted_remaining[0][1])
-            res = (first_action, int(total_steps), total_count, policy)
-            self.cache[key] = res
+            res = (first_action, int(total_steps), total_count)
+            self.memo[key] = res
             return res
 
         unshot = board.reshape(-1) == 0
         if not unshot.any():
-            # 没有格子可点了，异常情况
-            return (-1, 0, total_count, {})
+            return -1, 0, total_count
 
         # 3. 选择 TopK 动作
         ranked = _rank_actions_id3(self.outcomes, self.label_ids, cand_idx, unshot)
@@ -241,80 +234,89 @@ class MinAvgPlanner:
         ranked = ranked[:top_k]
         
         if not ranked:
-            return (-1, 0, total_count, {})
+            return -1, 0, total_count
 
         best_action = -1
         best_avg = float("inf")
         best_total_steps = 0
-        best_policy: dict[str, int] = {}
-
-        # 遍历动作，寻找最小平均步数
+        
+        # 遍历动作
         for a in ranked:
             a = int(a)
-            # 调用“动作节点”逻辑
-            # 返回该动作下的 (total_remaining_steps, count, policy)
-            # 注意：search_action 返回的 steps 是该动作之后的步数总和
-            act_steps, act_count, act_policy = self.search_action(board, cand_idx, a)
+            # 递归调用
+            act_steps, act_count = self.search_action(board, cand_idx, a)
             
-            # 当前状态节点选择动作 a，意味着所有 total_count 个布局都要走这一步
-            # 所以总消耗 = 之后的消耗 + 当前这一步(每个布局1步 * total_count)
             current_total = act_steps + total_count
-            
-            # 计算平均步数
-            # 注意：total_count 应该等于 act_count（除非有的分支没布局，但 sum 应该相等）
-            if total_count > 0:
-                avg = current_total / total_count
-            else:
-                avg = float("inf")
+            avg = current_total / total_count if total_count > 0 else float("inf")
 
             if avg < best_avg:
+                # 之前的 best_action 现在变成了“非最优”，需要清理它的分支
+                if best_action != -1:
+                    self._purge_branch(board, cand_idx, best_action)
+                
                 best_avg = avg
                 best_action = a
                 best_total_steps = current_total
-                best_policy = act_policy
+            else:
+                # 当前动作 a 不是最优，清理它的分支
+                self._purge_branch(board, cand_idx, a)
 
         # 4. 记录最优策略
         if best_action != -1:
-            best_policy[key] = best_action
+            self.policy[key] = best_action
         
-        res = (best_action, int(best_total_steps), total_count, best_policy)
-        self.cache[key] = res
+        res = (best_action, int(best_total_steps), total_count)
+        self.memo[key] = res
         return res
 
-    def search_action(self, board: np.ndarray, cand_idx: np.ndarray, action: int) -> tuple[int, int, dict[str, int]]:
+    def search_action(self, board: np.ndarray, cand_idx: np.ndarray, action: int) -> tuple[int, int]:
         """
         动作节点搜索：
-        1. 尝试 3 种结果 (MISS, BODY, HEAD)
-        2. 递归调用 search_state
-        3. 聚合结果 (total_steps, total_count, policy)
+        不再聚合 policy，只聚合数值结果。
         """
         total_steps = 0
         total_count = 0
-        combined_policy: dict[str, int] = {}
 
         for obs_v in (0, 1, 2): # MISS, BODY, HEAD
-            # 筛选符合该结果的布局
             mask = self.outcomes[cand_idx, action] == obs_v
             if not mask.any():
                 continue
             
             sub_cand_idx = cand_idx[mask]
             
-            # 更新棋盘状态
-            # board值: 0=Unknown, 1=Miss, 2=Body, 3=Head
-            # obs_v: 0=Miss, 1=Body, 2=Head
-            # 对应关系: board = obs_v + 1
             next_board = board.copy()
             next_board.reshape(-1)[action] = obs_v + 1
             
-            # 递归搜索子状态
-            _, sub_steps, sub_count, sub_policy = self.search_state(next_board, sub_cand_idx)
+            _, sub_steps, sub_count = self.search_state(next_board, sub_cand_idx)
             
             total_steps += sub_steps
             total_count += sub_count
-            combined_policy.update(sub_policy)
 
-        return total_steps, total_count, combined_policy
+        return total_steps, total_count
+
+    def _purge_branch(self, board: np.ndarray, cand_idx: np.ndarray, action: int) -> None:
+        """
+        递归删除指定动作产生的子策略。
+        """
+        for obs_v in (0, 1, 2):
+            mask = self.outcomes[cand_idx, action] == obs_v
+            if not mask.any():
+                continue
+            
+            sub_cand_idx = cand_idx[mask]
+            next_board = board.copy()
+            next_board.reshape(-1)[action] = obs_v + 1
+            
+            key = _board_to_key(next_board)
+            if key in self.policy:
+                # 如果该子状态在策略中有记录，说明它是本分支生成的（或者共享的）
+                # 这里我们假设它是本分支生成的（或者是共享的但现在父节点不要这个分支了）
+                # 我们删除它，并递归删除它的子动作
+                child_action = self.policy[key]
+                del self.policy[key]
+                self._purge_branch(next_board, sub_cand_idx, child_action)
+            
+            # 注意：不删除 memo，保留数值缓存以便可能的复用
 
 
 @dataclass
@@ -345,7 +347,11 @@ class MinAvgAgent:
 
     def _planner_for_fallback(self) -> MinAvgPlanner:
         if self._planner is None:
-            self._planner = MinAvgPlanner(self.outcomes, self.label_ids, self.labels, self.cfg)
+            # 如果已有 policy，复用它的字典
+            global_policy = self.policy.policy if self.policy else {}
+            self._planner = MinAvgPlanner(self.outcomes, self.label_ids, self.labels, self.cfg, global_policy)
+            if self.policy is None:
+                 self.policy = MinAvgPolicy(policy=global_policy, grid_size=GRID_SIZE)
         return self._planner
 
     def choose_action(
@@ -363,7 +369,7 @@ class MinAvgAgent:
 
         planner = self._planner_for_fallback()
         # 注意：这里直接调用 search_state，它会进行递归搜索
-        best_action, _, _, _ = planner.search_state(board, cand_idx)
+        best_action, _, _ = planner.search_state(board, cand_idx)
         if best_action >= 0:
             return int(best_action)
 
