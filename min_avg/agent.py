@@ -149,10 +149,6 @@ class MinAvgPlanner:
         self.label_ids = label_ids
         self.labels = labels
         self.cfg = cfg
-        # 运行时缓存：避免重复计算相同棋盘状态的最优解
-        # Key: board_hex, Value: (best_action, total_steps, total_count)
-        # 注意：这里不再存储 policy，只存储数值评估结果
-        self.memo: dict[str, tuple[int, int, int]] = {}
         # 全局唯一的策略字典，由外部传入
         self.policy = global_policy
         self._visited_nodes = 0
@@ -162,32 +158,21 @@ class MinAvgPlanner:
             return
         self._visited_nodes += 1
         if self._visited_nodes % self.cfg.progress_every == 0:
-            print(f"[min_avg] visited nodes: {self._visited_nodes} | memo size: {len(self.memo)} | policy size: {len(self.policy)}")
+            print(f"[min_avg] visited nodes: {self._visited_nodes} | policy size: {len(self.policy)}")
 
     def search_state(self, board: np.ndarray, cand_idx: np.ndarray) -> tuple[int, int, int]:
         """
         状态节点搜索：
-        1. 检查缓存 (memo)
-        2. 检查终止条件
-        3. 选 TopK 动作，调用 search_action
-        4. 选最优动作，写入 global_policy
-        5. 递归删除非最优动作的分支 (cleanup)
-        6. 返回 (best_action, best_total_steps, total_count)
+        1. 检查终止条件
+        2. 选 TopK 动作，调用 search_action
+        3. 选最优动作，写入 global_policy
+        4. 递归删除非最优动作的分支 (cleanup)
+        5. 返回 (best_action, best_total_steps, total_count)
         """
         self._progress()
         
-        # 1. 缓存检查
+        # 1. 计算 key (用于写入 policy)
         key = _board_to_key(board)
-        if key in self.memo:
-            best_action, best_total_steps, total_count = self.memo[key]
-            # 关键：如果命中了缓存，但该状态在 policy 中缺失（可能被其他分支误删），需要恢复
-            if key not in self.policy and best_action >= 0:
-                self.policy[key] = best_action
-                # 注意：这里我们只恢复了当前节点的 policy，理想情况下应该递归恢复
-                # 但由于我们有 memo，后续子节点访问时也会触发恢复逻辑
-                # 或者我们可以主动调用 _ensure_branch_policy 来递归恢复，防止交互时查不到策略
-                # 简单起见，这里只恢复当前节点。如果后续需要子节点策略，访问时自会恢复。
-            return best_action, best_total_steps, total_count
 
         total_count = int(cand_idx.size)
         if total_count == 0:
@@ -220,7 +205,6 @@ class MinAvgPlanner:
             
             first_action = int(sorted_remaining[0][0] * GRID_SIZE + sorted_remaining[0][1])
             res = (first_action, int(total_steps), total_count)
-            self.memo[key] = res
             return res
 
         unshot = board.reshape(-1) == 0
@@ -266,7 +250,6 @@ class MinAvgPlanner:
             self.policy[key] = best_action
         
         res = (best_action, int(best_total_steps), total_count)
-        self.memo[key] = res
         return res
 
     def search_action(self, board: np.ndarray, cand_idx: np.ndarray, action: int) -> tuple[int, int]:
@@ -315,8 +298,6 @@ class MinAvgPlanner:
                 child_action = self.policy[key]
                 del self.policy[key]
                 self._purge_branch(next_board, sub_cand_idx, child_action)
-            
-            # 注意：不删除 memo，保留数值缓存以便可能的复用
 
 
 @dataclass
