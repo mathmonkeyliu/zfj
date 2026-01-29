@@ -21,7 +21,6 @@ def rotate_point(dx: int, dy: int, direction: Direction) -> tuple[int, int]:
     if direction == Direction.RIGHT:
         # 90 deg CW: (row, col) -> (-col, row)
         return -dy, dx
-    raise ValueError(f"Unknown direction: {direction}")
 
 
 def get_valid_single_planes():
