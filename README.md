@@ -11,7 +11,7 @@
 
 ## 在线使用
 
-[https://www.mathmonkeyliu.fun/static/games/zfj/](https://www.mathmonkeyliu.fun/static/games/zfj/)
+开发中...
 
 ## 游玩
 
@@ -44,20 +44,6 @@
   - **击中**：该格子是飞机的机身
   - **击落**：该格子是飞机的机头
 
-## 项目结构
-
-```
-zfj/
-├── config.py              # 游戏配置（网格大小、飞机形状、坐标约定等）
-├── layout_generater.py    # 生成所有合法布局（按“机头三元组”分组写入 layouts.jsonl）
-├── layouts.jsonl          # 所有合法布局数据（需要运行layout_generater.py生成；一行=一种机头排布）
-├── environment.py         # 强化学习环境（step/reset/obs/action_mask）
-├── id3/                   # 在线 ID3（每步信息增益选点）
-├── min_avg/               # 贪心搜索（每步选平均剩余步数最少的动作）
-├── interactive_play.py    # 交互程序
-└── evaluate.py            # 遍历所有布局评估并画柱状图（均值/中位数）
-```
-
 ## 依赖安装
 
 使用 `uv`（推荐）：
@@ -75,45 +61,27 @@ python layout_generater.py
 
 这将生成 `layouts.jsonl` 文件（按机头三元组分组，一行对应一种机头排布）。
 
-### 2. 交互式游戏
-
-与 AI 进行交互式游戏（你提供每次打击结果 0/1/2）：
-
-```bash
-python interactive_play.py --algo id3
-```
-
-游戏界面说明：
-- `·` (灰色) = 未击中
-- `X` (绿色) = 击中机身/机翼
-- `H` (红色) = 击中机头（击落）
-- `?` (黄色) = AI 建议的下一步打击位置
-
-输入结果：
-- `0` = 未击中
-- `1` = 击中机身
-- `2` = 击中机头
-
-### 3. 性能统计
+### 2. 性能统计
 遍历布局评估一种方法在所有布局下炸掉全部机头的步数，并画柱状图（标出均值/中位数）：
 
 ```bash
-python evaluate.py --method id3
+python evaluate.py --method id3 --out evaluation_id3.png
+python evaluate.py --method min_avg --checkpoint min_avg.json --out evaluation_min_avg.png
 ```
 
-可选方法：
-- `id3`
-- `min_avg`：贪心搜索，每步选择平均剩余步数最少的动作。
-
-## AI性能
+## 算法性能
 
 我们使用击落全部飞机所用步数的**中位数**和**平均数**作为性能评估标准。
 
 ### ID3
+决策树的经典算法，ID3。性能如下
 ![ID3](evaluation_id3.png)
-平均数为**12.85**，中位数为**13.00**。
+平均数为**12.851**，中位数为**13.000**。
 
-### 其它
+### min_avg
+使用ID3和旋转对称性进行剪枝操作，然后深度搜索，搜索出平均步数最少的策略。
+
+目前topk=2的平均数（似乎）达到了**12.693**。
 
 欢迎读者设计其它方法超越我的性能。可以通过[mathmonkeyliu@outlook.com](mailto:mathmonkeyliu@outlook.com)联系我。
 
