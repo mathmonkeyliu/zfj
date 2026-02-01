@@ -53,7 +53,7 @@ zfj/
 ├── layouts.jsonl          # 所有合法布局数据（需要运行layout_generater.py生成；一行=一种机头排布）
 ├── environment.py         # 强化学习环境（step/reset/obs/action_mask）
 ├── id3/                   # 在线 ID3（每步信息增益选点）
-├── monkey/                # Monkey（minimax+alpha-beta：ID3 top-k 限制分支）
+├── min_avg/               # 贪心搜索（每步选平均剩余步数最少的动作）
 ├── interactive_play.py    # 交互程序
 └── evaluate.py            # 遍历所有布局评估并画柱状图（均值/中位数）
 ```
@@ -103,7 +103,7 @@ python evaluate.py --method id3
 
 可选方法：
 - `id3`
-- `monkey`：monkey方法是我自己想的方法，由于其简洁性，很有可能早就已经被人发现了，但我不管，我还是要叫他monkey方法。大致的思路是使用id3信息增益排名topk的动作进行搜索（对称相同的动作去重），然后使用minimax搜索加上$\alpha - \beta$剪枝去搜索最坏步数，这种方法大概率可以搜索到最坏用几步可以完成游戏，但是其平均数和中位数未必是最佳的。
+- `min_avg`：贪心搜索，每步选择平均剩余步数最少的动作。
 
 ## AI性能
 
@@ -112,24 +112,6 @@ python evaluate.py --method id3
 ### ID3
 ![ID3](evaluation_id3.png)
 平均数为**12.85**，中位数为**13.00**。
-
-### Monkey Method
-
-#### Topk = 2, 5; num = 10
-
-![Monkey](evaluation_monkey_2_10_5.png)
-平均数为**12.805**，中位数为**13.00**。(我尝试了Topk = 2, 3; num = 10和Topk = 2, 5; num = 5都是一模一样的结果)
-
-#### Topk = 3, 5; num = 5
-![Monkey](evaluation_monkey_3_5_5.png)
-平均数为**12.813**，中位数为**13.00**。
-
-这个配置复杂度比较高，运行了$77606.3$秒，访问了$439,308,186$个节点，但是结果还不如配置低的实验组。这是因为monkey方法目标是搜索最坏情况下的最小步数，不能确保策略最佳，最佳策略的搜索复杂度就是去掉$\alpha - \beta$剪枝，是$O(topk^{depth})$，只能说虽不能至，心向往之了。
-
-
-但至少可以得出结论，最坏情况步数极大概率（几乎可以肯定了）是19步。
-
-> **19**，又是谁的回忆呢。你想起的是一个年份，还是一个学号，还是一个年纪呢。算了，你终究什么也想不起来，就像她想不起你一样。
 
 ### 其它
 

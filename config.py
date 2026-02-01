@@ -1,17 +1,19 @@
 # config.py
-from enum import Enum, auto
-
+from enum import IntEnum, unique
 GRID_SIZE = 10
 LAYOUT_FILE = "layouts.jsonl"
-MIN_AVG_TOPK = 1
 
-# Coordinate convention (IMPORTANT):
+# Coordinate convention:
 # A point is (x, y) where:
 # - x = row index (0..9)
 # - y = column index (0..9)
 #
-# Plane relative body coordinates (dx, dy) are expressed in (row_offset, col_offset),
-# with (0, 0) being the head. For Direction.UP, the body is above the head (negative row offsets).
+# Plane body's relative coordinates (dx, dy) are expressed in (row_offset, col_offset),
+# with (0, 0) being the head. For Direction.UP, the head is above the body.
+# UP is (-dx, -dy)
+# DOWN is (dx, dy)
+# LEFT is (dy, -dx)
+# RIGHT is (-dy, dx)
 RELATIVE_COORDS = [
     (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2),
     (-2, 0),
@@ -19,17 +21,17 @@ RELATIVE_COORDS = [
 ]
 
 
-class GridState(Enum):
-    UNKNOWN = auto()
-    MISS = auto()
-    BODY = auto()
-    HEAD = auto()
+@unique
+class GridState(IntEnum):
+    UNKNOWN = 0
+    VOID = 1
+    BODY = 2
+    HEAD = 3
 
 
-class Direction(Enum):
-    UP = auto()
-    RIGHT = auto()
-    DOWN = auto()
-    LEFT = auto()
-    def __str__(self):
-        return self.name
+@unique
+class Direction(IntEnum):
+    UP = 1
+    RIGHT = 2
+    DOWN = 3
+    LEFT = 4
