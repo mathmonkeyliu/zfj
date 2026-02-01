@@ -11,8 +11,9 @@ from id3 import ID3Agent
 PolicyType = Dict[Tuple[int, ...], Tuple[int, float]]
 
 class MinAvgSolver:
-    def __init__(self, topk: int):
+    def __init__(self, topk: int, logging: bool = True):
         self.topk = topk
+        self.logging = logging
         self.agent = ID3Agent()
         self.policy: PolicyType = {} # state_tuple -> (best_move, best_avg)
         self.visited_nodes = 0
@@ -61,14 +62,16 @@ class MinAvgSolver:
 
     def solve(self, state_tuple: Tuple[int, ...], possible_indices: np.ndarray = None) -> float:
         self.visited_nodes += 1
-        if self.visited_nodes % 5000 == 0:
+        if self.logging and self.visited_nodes % 5000 == 0:
             print(f"Visited Nodes: {self.visited_nodes}, Policy Size: {len(self.policy)}")
 
         # 1. Check termination conditions
         observed = np.array(state_tuple, dtype=np.uint8)
 
         if possible_indices is None:
-            possible_indices = np.arange(self.agent.layouts.shape[0], dtype=np.int32)
+            known_grids = (observed != GridState.UNKNOWN)
+            matches = np.all(self.agent.layouts[:, known_grids] == observed[known_grids] - 1, axis=1)
+            possible_indices = np.flatnonzero(matches).astype(np.int32)
         possible_count = possible_indices.size
 
         if possible_count == 0:
