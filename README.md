@@ -27,7 +27,7 @@
 
 ## 在线使用
 
-开发中...
+[https://mathmonkeyliu.github.io/zfj/](https://mathmonkeyliu.github.io/zfj/)
 
 ## 游玩
 
