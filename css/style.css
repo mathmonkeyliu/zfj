@@ -1,0 +1,246 @@
+/* css/style.css */
+:root {
+    --cell-size: 40px;
+    --grid-gap: 1px;
+    --color-unknown: #ffffff;
+    --color-void: #bdbdbd;
+    --color-body: #66bb6a;
+    --color-head: #ef5350;
+    --color-border: #000000;
+    --color-text-ai: #2196f3;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f5f5f5;
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+}
+
+h1 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.container {
+    background: white;
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    margin: 0 auto;
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+    .container {
+        padding: 20px 16px;
+        box-shadow: none;
+        background: transparent;
+    }
+    .board {
+        border-width: 0;
+        background-color: transparent;
+        gap: 2px;
+    }
+    /* Calculate dynamic cell size for mobile if needed, or keep fixed but ensure fit */
+    /* Since 10x40px = 400px, this exceeds 320px-375px screens. We need responsive grid. */
+}
+
+/* Grid Responsive Override */
+@media (max-width: 440px) {
+    :root {
+        /* (Screen width - padding) / 10 */
+        --cell-size: calc((100vw - 40px) / 10); 
+    }
+    .board {
+        gap: 1px;
+        border: 1px solid #000;
+    }
+}
+
+.mode-switch {
+    margin-bottom: 20px;
+}
+
+.mode-switch a {
+    color: #1976d2;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.mode-switch a:hover {
+    text-decoration: underline;
+}
+
+/* Grid */
+.board {
+    display: grid;
+    grid-template-columns: repeat(10, var(--cell-size));
+    grid-template-rows: repeat(10, var(--cell-size));
+    gap: var(--grid-gap);
+    background-color: var(--color-border);
+    border: var(--grid-gap) solid var(--color-border);
+    margin-bottom: 20px;
+    user-select: none;
+}
+
+.cell {
+    background-color: var(--color-unknown);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+    font-weight: bold;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.cell.void { background-color: var(--color-void); }
+.cell.body { background-color: var(--color-body); }
+.cell.head { background-color: var(--color-head); }
+
+.cell .ai-hint {
+    color: var(--color-text-ai);
+    font-size: 16px;
+    font-weight: 900;
+    z-index: 2;
+    text-shadow: 0 0 2px white;
+    pointer-events: none;
+}
+
+/* Controls Container */
+.toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    width: 100%;
+}
+
+/* Button Group */
+.btn-group {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+button {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+}
+
+button:active {
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+button.primary {
+    background-color: #2196f3;
+    color: white;
+}
+
+button.primary:hover {
+    background-color: #1e88e5;
+    box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+}
+
+button.secondary {
+    background-color: #f5f5f5;
+    color: #555;
+    border: 1px solid #e0e0e0;
+}
+
+button.secondary:hover {
+    background-color: #eeeeee;
+    border-color: #d0d0d0;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* Explore Mode Palette */
+.palette {
+    display: flex;
+    gap: 16px;
+    padding: 12px 16px;
+    background-color: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #eee;
+    margin-bottom: 24px;
+}
+
+.palette-item {
+    width: 44px;
+    height: 44px;
+    border: 2px solid rgba(0,0,0,0.1);
+    cursor: pointer;
+    border-radius: 10px;
+    position: relative;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.p-void { background-color: var(--color-void); }
+.p-body { background-color: var(--color-body); }
+.p-head { background-color: var(--color-head); }
+
+.palette-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(0,0,0,0.2);
+}
+
+.palette-item.active {
+    border-color: #333;
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    flex-direction: column;
+    font-size: 1.2rem;
+}
+
+.status-text {
+    margin-top: 10px;
+    color: #666;
+    font-size: 0.9rem;
+    height: 1.2em;
+    text-align: center;
+}

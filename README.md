@@ -104,7 +104,7 @@ python min_avg_cpu.py --out topk_2.json --topk 2
 
 ## 后记
 
-欢迎读者设计其它方法超越我的性能。可以通过[mathmonkeyliu@outlook.com](mailto:mathmonkeyliu@outlook.com)联系我。
+欢迎读者设计其它方法超越我的性能。可以通过[mathmonkeyliu@mail.ustc.edu.cn](mailto:mathmonkeyliu@mail.ustc.edu.cn)联系我。
 
 ## 作者
 

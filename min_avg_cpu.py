@@ -131,8 +131,7 @@ class ParallelMinAvgSolver(MinAvgSolver):
                 total = len(task_list)
                 for state, avg, policy_frag in results_iter:
                     count += 1
-                    if count % 10 == 0 or count == total:
-                        print(f"Progress: Layer {i}, task {count}/{total} completed")
+                    print(f"Progress: Layer {i}, task {count}/{total} completed")
                     
                     # Merge results into main policy
                     self.policy.update(policy_frag)
