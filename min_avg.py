@@ -2,6 +2,7 @@ import argparse
 import json
 import time
 
+from collections import defaultdict
 import numpy as np
 from typing import Dict, Tuple
 
@@ -17,48 +18,33 @@ class MinAvgSolver:
         self.agent = ID3Agent()
         self.policy: PolicyType = {} # state_tuple -> (best_move, best_avg)
         self.visited_nodes = 0
+        self.ref_counts = defaultdict(int)
 
 
-    def prune(self, state_tuple: Tuple[int, ...], protected: set):
+    def prune(self, state_tuple: Tuple[int, ...]):
+        # If this node is used by another parent, don't delete it
+        if self.ref_counts[state_tuple] > 0:
+            return
+            
         if state_tuple not in self.policy:
             return
         
-        if state_tuple in protected:
-            return
-
         # Get the move that was stored
         move, _ = self.policy[state_tuple]
         
-        # Reconstruct children states
-        observed = np.array(state_tuple, dtype=np.int8)
-        
-        for outcome in [GridState.VOID, GridState.BODY, GridState.HEAD]:
-            next_observed = observed.copy()
-            next_observed[move] = outcome
-            next_state_tuple = tuple(next_observed)
-            
-            self.prune(next_state_tuple, protected)
-
-        # Delete current node (Post-order)
+        # Delete current node
         del self.policy[state_tuple]
 
-    def collect_protected_nodes(self, state_tuple: Tuple[int, ...], protected: set):
-        if state_tuple in protected:
-            return
-        
-        protected.add(state_tuple)
-        
-        if state_tuple not in self.policy:
-            return
-            
-        move, _ = self.policy[state_tuple]
+        # Reconstruct children states and decrement their ref counts
         observed = np.array(state_tuple, dtype=np.int8)
         
         for outcome in [GridState.VOID, GridState.BODY, GridState.HEAD]:
             next_observed = observed.copy()
             next_observed[move] = outcome
             next_state_tuple = tuple(next_observed)
-            self.collect_protected_nodes(next_state_tuple, protected)
+            
+            self.ref_counts[next_state_tuple] -= 1
+            self.prune(next_state_tuple)
 
     def solve(self, state_tuple: Tuple[int, ...], possible_indices: np.ndarray = None) -> float:
         self.visited_nodes += 1
@@ -152,20 +138,18 @@ class MinAvgSolver:
         self.policy[state_tuple] = (best_move, best_avg)
 
         # 5. Prune non-optimal branches
-        protected = set()
-
-        # Identify protected nodes (best_move's subtree)
+        # Increment ref counts for the chosen best move's children
         for res in move_results:
             if res['move'] == best_move:
                 for child_state in res['children'].values():
-                    self.collect_protected_nodes(child_state, protected)
+                    self.ref_counts[child_state] += 1
                 break
         
-        # Prune other branches and not in the protected set
+        # Prune other branches
         for res in move_results:
             if res['move'] != best_move:
                 for child_state in res['children'].values():
-                    self.prune(child_state, protected)
+                    self.prune(child_state)
 
         return best_avg
 
