@@ -177,6 +177,10 @@ h1 {
     transition: background-color 0.15s ease;
 }
 
+.overlay-cell {
+    background-color: transparent; /* Fix: Overlay should not hide underlying board */
+}
+
 .cell:hover {
     filter: brightness(0.95);
 }
@@ -184,6 +188,13 @@ h1 {
 .cell.void { background-color: var(--color-void); }
 .cell.body { background-color: var(--color-body); }
 .cell.head { background-color: var(--color-head); }
+
+/* Game Won State (ID3) */
+.cell.body.won-dim {
+    background-color: var(--color-unknown);
+    background-image: linear-gradient(rgba(102, 187, 106, 0.35), rgba(102, 187, 106, 0.35));
+    cursor: default;
+}
 
 .cell.highlight {
     position: relative;
@@ -212,8 +223,8 @@ h1 {
     font-size: 0.9em;
 }
 
-.overlay-cell.head-hint { background-color: rgba(239, 83, 80, 0.7); }
-.overlay-cell.body-hint { background-color: rgba(102, 187, 106, 0.6); }
+.overlay-cell.head-hint { background-color: rgba(239, 83, 80, 0.5); }
+.overlay-cell.body-hint { background-color: rgba(102, 187, 106, 0.35); }
 
 /* 3. Footer / Controls Area */
 .layout-controls {

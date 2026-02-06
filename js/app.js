@@ -10,6 +10,7 @@ const App = {
     algorithm: 'id3', // 'id3' | 'minavg'
     paletteSelected: STATE.VOID,
     isAIReady: false,
+    isGameWon: false,
     
     // Min Avg State
     minAvgCurrentSuggestion: null, // index
@@ -87,8 +88,8 @@ const App = {
             document.getElementById('explore-controls') // will be managed by toggleMode logic
         ];
         const minAvgElements = [
-            document.getElementById('min-avg-controls'),
-            document.getElementById('min-avg-overlay')
+            document.getElementById('min-avg-controls')
+            // Overlay should remain available for ID3 mode too
         ];
 
         if (algo === 'minavg') {
@@ -151,6 +152,7 @@ const App = {
     startMinAvgGame() {
         minAvgEngine.startGame();
         this.board = minAvgEngine.getGrid(); // Reference to engine's grid
+        this.isGameWon = false;
         this.clearOverlay();
         this.updateBoardUI();
         this.updateMinAvgUI();
@@ -168,8 +170,8 @@ const App = {
         if (result.type === 'suggest') {
             this.minAvgCurrentSuggestion = result.index;
             this.highlightCell(result.index);
-            this.setStatus("请探测高亮格子，并告知结果");
-            this.setInstruction("AI 建议探测高亮格子");
+            this.setStatus("请点击高亮格子，并告知结果");
+            this.setInstruction("AI 建议点击高亮格子，请告知结果");
             this.enableFeedbackButtons(true);
         } else if (result.type === 'solved') {
             this.setStatus("已找到唯一布局！");
@@ -274,6 +276,7 @@ const App = {
                     this.trueLayout = layout;
                     this.board.fill(STATE.UNKNOWN);
                     this.clearHints();
+                    this.isGameWon = false;
                     this.updateBoardUI();
                     this.setStatus("新游戏开始");
                     break;
@@ -332,6 +335,7 @@ const App = {
 
     clearBoard() {
         this.board.fill(STATE.UNKNOWN);
+        this.isGameWon = false;
         this.clearHints();
         this.updateBoardUI();
         this.setStatus("棋盘已清空");
@@ -351,6 +355,7 @@ const App = {
         this.clearHints();
 
         if (this.mode === 'play') {
+            if (this.isGameWon) return;
             if (this.board[idx] !== STATE.UNKNOWN) return;
             if (!this.trueLayout) return;
 
@@ -363,13 +368,8 @@ const App = {
             this.board.forEach(s => { if(s === STATE.HEAD) heads++; });
             if (heads === 3) {
                 this.setStatus("恭喜！你找到了所有飞机！");
-                // Reveal all
-                for(let i=0; i<100; i++) {
-                    if(this.board[i] === STATE.UNKNOWN) {
-                        this.board[i] = this.trueLayout[i];
-                        this.updateCellUI(i);
-                    }
-                }
+                this.isGameWon = true;
+                this.updateBoardUI();
             } else {
                 this.setStatus("...");
             }
@@ -441,9 +441,24 @@ const App = {
     updateCellUI(idx) {
         const cell = document.getElementById(`cell-${idx}`);
         cell.className = 'cell'; // reset
-        const s = this.board[idx];
+        let s = this.board[idx];
+        let isRevealed = false;
+        
+        // If game is won in ID3, peek at true layout for body parts
+        if (this.algorithm === 'id3' && this.isGameWon && s === STATE.UNKNOWN) {
+            const trueS = this.trueLayout[idx];
+            if (trueS === STATE.BODY) {
+                s = STATE.BODY;
+                isRevealed = true;
+            }
+            // VOID remains UNKNOWN (White) as per user request
+        }
+        
         if (s === STATE.VOID) cell.classList.add('void');
-        if (s === STATE.BODY) cell.classList.add('body');
+        if (s === STATE.BODY) {
+            cell.classList.add('body');
+            if (isRevealed) cell.classList.add('won-dim');
+        }
         if (s === STATE.HEAD) cell.classList.add('head');
         
         // Preserve highlight if exists and logic allows

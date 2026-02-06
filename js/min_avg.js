@@ -184,25 +184,9 @@ class MinAvgEngine {
                 // If multiple candidates, find intersection
                 if (indices.length > 1) {
                     for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
-                        // If HEAD, it should be same (since we found them)
-                        // If BODY, check if all candidates have BODY
-                        // If VOID, check if all candidates have VOID
-                        
-                        // We primarily care about showing Body parts that are CERTAIN.
-                        // If a cell varies between BODY and VOID, we might want to show nothing or VOID.
-                        
-                        let allBody = true;
-                        
-                        for (const idx of indices) {
-                            if (this.layouts[idx][i] !== GridState.BODY) {
-                                allBody = false;
-                                break;
-                            }
-                        }
-                        
-                        if (!allBody && compositeLayout[i] === GridState.BODY) {
-                            // It varies, so mark as VOID or UNKNOWN for display purpose
-                            // Since we want to show "unique layout", showing uncertain body parts is misleading.
+                        // User request: If not unique layout (just unique heads), 
+                        // do not show any green body hints.
+                        if (compositeLayout[i] === GridState.BODY) {
                             compositeLayout[i] = GridState.VOID; 
                         }
                     }
