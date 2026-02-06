@@ -52,7 +52,7 @@ def main():
         
         policy = {}
         for key, move in raw_policy.items():
-            state_tuple = tuple(map(int, key.split(",")))
+            state_tuple = tuple(map(int, list(key)))
             policy[state_tuple] = move
 
         pbar = tqdm(layouts_to_test, desc="Evaluating min_avg", total=len(layouts_to_test), unit="layout")

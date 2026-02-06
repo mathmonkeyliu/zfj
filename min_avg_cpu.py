@@ -3,22 +3,39 @@ import json
 import time
 import multiprocessing
 import numpy as np
+import os
+import shutil
 from typing import Tuple, Dict
+from tqdm import tqdm
 
-from config import GRID_SIZE, GridState
+from config import GRID_SIZE, GridState, MAX_EXPAND_NODES
 from min_avg import MinAvgSolver
 
 PolicyType = Dict[Tuple[int, ...], Tuple[int, float]]
 
 def solve_subtree(state_tuple, possible_indices, topk, initial_policy=None):
     solver = MinAvgSolver(topk, logging=False)
-    
-    # Inject known results to avoid re-computation
     if initial_policy:
         solver.policy.update(initial_policy)
-        
     avg = solver.solve(state_tuple, possible_indices)
     return state_tuple, avg, solver.policy
+
+def solve_subtree_to_file(idx, temp_dir, state_tuple, possible_indices, topk):
+    filename = os.path.join(temp_dir, f"{''.join(map(str, state_tuple))}.json")
+    if os.path.exists(filename):
+        return idx
+    solver = MinAvgSolver(topk, logging=False)
+    solver.solve(state_tuple, possible_indices)
+    data = {}
+    for k, v in solver.policy.items():
+        key_str = "".join(map(str, k))
+        data[key_str] = v
+    with open(filename, "w") as f:
+        json.dump(data, f)
+    return idx
+
+def _solve_subtree_to_file_wrapper(args):
+    return solve_subtree_to_file(*args)
 
 def _solve_subtree_wrapper(args):
     return solve_subtree(*args)
@@ -58,7 +75,7 @@ class ParallelMinAvgSolver(MinAvgSolver):
             
             if not candidates:
                 continue
-
+            
             # expanding this node
             for move in candidates:
                 move_values = self.agent.layouts[indices, move]
@@ -81,79 +98,104 @@ class ParallelMinAvgSolver(MinAvgSolver):
 
         return list(next_layer_map.items())
 
-    def run_parallel(self, initial_state):
+    def run(self, initial_state):
         print(f"Detected {self.cpu_count} logical CPU cores.")
         
         # 1. Expand and Store Layers
         all_layers = []
         current_layer_list = [(initial_state, None)]
         
-        print(f"Starting BFS expansion with TopK={self.topk}...")
+        print(f"Starting BFS expansion with TopK={self.topk}, Max Nodes={MAX_EXPAND_NODES}...")
         
+        # BFS until MAX_EXPAND_NODES is reached
         while True:
             all_layers.append(current_layer_list)
-            
             next_layer = self.get_layer_children(current_layer_list)
-            
-            # If next layer exceeds CPU count, stop expansion and use it as the parallel frontier
-            if len(next_layer) > self.cpu_count:
-                print(f"Next layer size {len(next_layer)} > cores {self.cpu_count}. Stopping expansion.")
+            if not next_layer: break
+            print(f"Layer expanded: {len(current_layer_list)} -> {len(next_layer)} nodes")
+
+            if len(next_layer) > MAX_EXPAND_NODES:
+                print(f"Next layer size {len(next_layer)} > limit {MAX_EXPAND_NODES}. Stopping expansion.")
                 all_layers.append(next_layer)
                 break
-                
-            print(f"Layer expanded: {len(current_layer_list)} -> {len(next_layer)} nodes")
             current_layer_list = next_layer
 
-        # 2. Parallel Execution Phase
-        t_start = time.time()
-        for i in range(len(all_layers) - 1, -1, -1):
-            t_start_layer = time.time()
-            layer_nodes = all_layers[i]
-
-            print(f"Processing Layer {i} ({len(layer_nodes)} nodes)...")
-
-            # Determine tasks
-            if i == len(all_layers) - 1:
-                task_list = [(s, idx, self.topk) for s, idx in layer_nodes]
-            else:
-                children_cache = {}
-                next_layer_nodes = all_layers[i+1]
-                for child_state, _ in next_layer_nodes:
-                    if child_state in self.policy:
-                        children_cache[child_state] = self.policy[child_state]
-                task_list = [(s, idx, self.topk, children_cache) for s, idx in layer_nodes]
-
-            with multiprocessing.Pool(processes=self.cpu_count) as pool:
-                # We use _solve_subtree_wrapper because imap only supports a single argument
-                results_iter = pool.imap_unordered(_solve_subtree_wrapper, task_list)
-                
-                count = 0
-                total = len(task_list)
-                for state, avg, policy_frag in results_iter:
-                    count += 1
-                    print(f"Progress: Layer {i}, task {count}/{total} completed")
-                    
-                    # Merge results into main policy
-                    self.policy.update(policy_frag)
-
-            t_end_layer = time.time()
-            print(f"Layer {i} completed in {t_end_layer - t_start_layer:.2f} seconds.")
+        # 2. Parallel Execution Phase (Last Layer Only)
+        frontier_layer = all_layers[-1]
+        print(f"Parallel processing frontier layer with {len(frontier_layer)} nodes...")
         
+        temp_dir = os.path.join("temp_policies", f"topk_{self.topk}")
+        # if os.path.exists(temp_dir):
+        #     shutil.rmtree(temp_dir)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Prepare tasks: (idx, temp_dir, state, indices, topk)
+        task_list = [(i, temp_dir, s, idx, self.topk) for i, (s, idx) in enumerate(frontier_layer)]
+
+        t_start = time.time()
+        
+        with multiprocessing.Pool(processes=self.cpu_count) as pool:
+            results_iter = pool.imap_unordered(_solve_subtree_to_file_wrapper, task_list)
+            for _ in tqdm(results_iter, total=len(task_list), desc="Frontier tasks"):
+                pass
+        
+        # 3. Aggregate Results
+        print("Aggregating partial policies from temp files...")
+        
+        # We iterate over the frontier layer to find expected files
+        # Alternatively, we could just listdir, but iterating ensures we match the run structure
+        # Actually, listing dir is safer if we want to pick up everything in the folder
+        
+        for fname in os.listdir(temp_dir):
+            if not fname.endswith(".json"):
+                continue
+                
+            path = os.path.join(temp_dir, fname)
+            with open(path, "r") as f:
+                data = json.load(f)
+                # Convert keys back to tuples and update main policy
+                for k_str, val in data.items():
+                    # k_str is "123..."
+                    k_tuple = tuple(map(int, list(k_str)))
+                    self.policy[k_tuple] = (val[0], val[1])
+        
+        print(f"Aggregation complete. Policy size: {len(self.policy)}")
+        
+        # 4. Sequential Backpropagation (Upper Layers)
+        # Iterate from the layer above frontier up to root
+        for i in range(len(all_layers) - 2, -1, -1):
+            layer_nodes = all_layers[i]
+            print(f"Processing Layer {i} ({len(layer_nodes)} nodes) sequentially...")
+            
+            for s, idx in layer_nodes:
+                # self.solve will use the cached children results in self.policy
+                self.solve(s, idx, prune_nodes=False)
+
+        # 5. Global Pruning
+        print("Performing global pruning from root...")
+        self.prune_global(initial_state)
+
         t_end = time.time()
-        print(f"Parallel execution phase completed in {t_end - t_start:.2f} seconds.")
-        return self.policy[initial_state][1]
+        print(f"Execution completed in {t_end - t_start:.2f} seconds.")
+
+        # Clean up temp
+        # shutil.rmtree(temp_dir)
+        
+        if initial_state in self.policy:
+            return self.policy[initial_state][1]
+        return 0.0
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=str, required=True, help="Output path for the checkpoint (.json)")
-    parser.add_argument("--topk", type=int, default=2)
+    parser.add_argument("--topk", type=int, required=True)
     args = parser.parse_args()
 
     t0 = time.time()
 
     solver = ParallelMinAvgSolver(topk=args.topk)
-    initial_state = tuple([GridState.UNKNOWN] * (GRID_SIZE * GRID_SIZE))
-    avg_steps = solver.run_parallel(initial_state)
+    initial_state = tuple[GridState, ...]([GridState.UNKNOWN] * (GRID_SIZE * GRID_SIZE))
+    avg_steps = solver.run(initial_state)
     
     t1 = time.time()
     print(f"Total time taken: {t1 - t0:.2f} seconds")
@@ -161,7 +203,7 @@ def main():
 
     checkpoint_data = {}
     for state, (move, _) in solver.policy.items():
-        state_key = ",".join(map(str, state))
+        state_key = "".join(map(str, state))
         checkpoint_data[state_key] = move
 
     print(f"Saving checkpoint to {args.out} with {len(checkpoint_data)} states...")

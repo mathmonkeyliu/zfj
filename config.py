@@ -3,6 +3,9 @@ from enum import IntEnum, unique
 GRID_SIZE = 10
 LAYOUT_FILE = "layouts.jsonl"
 
+# min_avg config
+MAX_EXPAND_NODES = 100
+
 # Coordinate convention:
 # A point is (x, y) where:
 # - x = row index (0..9)

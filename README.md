@@ -9,6 +9,10 @@
 
 本项目是**炸飞机**（又称**飞机大战**）游戏的AI。
 
+## 在线使用
+
+[https://mathmonkeyliu.github.io/zfj/](https://mathmonkeyliu.github.io/zfj/)
+
 ## 游戏规则
 
 可以参考[https://mp.weixin.qq.com/s/ni7TqwWlA7PldDzgUsAL8w](https://mp.weixin.qq.com/s/ni7TqwWlA7PldDzgUsAL8w)
@@ -24,10 +28,6 @@
 **获胜条件**：先击中对方三个机头的人获得胜利。
 
 游戏没有先后手之分，同一回合先下手为强。
-
-## 在线使用
-
-[https://mathmonkeyliu.github.io/zfj/](https://mathmonkeyliu.github.io/zfj/)
 
 ## 游玩
 
@@ -92,9 +92,15 @@ python evaluate.py --method min_avg --checkpoint topk_1.json --out evaluation_mi
 python min_avg_cpu.py --out topk_2.json --topk 2
 ```
 
-以上topk=2的命令在一个30核心的i9-9960X CPU上大概需要两天。
+以上topk=2的命令在一个64核心的Intel(R) Xeon(R) Gold 6326 CPU @ 2.90GHz上大概需要八个小时。
 
-> topk=2的平均数（似乎）达到了**12.693**。
+> 使用```min_avg_cpu```的时候需要注意！如果你对你的内存不是非常有自信，请调低```config.py```中的```MAX_EXPAND_NODES```。比如我运行的时候服务器就死机了，这时候由于有```temp_policies```文件夹，可以从断点继续算。当然，如果你不想继续死机的话，建议把之前计算的策略删除，并且提高```MAX_EXPAND_NODES```，或者运行```dealing_tricky_nodes.py```divide and conquer那些计算量极大的节点。
+
+topk=2的实验结果如下：
+
+![](evaluation_min_avg_topk_2.png)
+
+在所有布局随机选取的先验下，topk=2的平均数步数达到了**12.657**，中位数步数为**13.000**。
 
 ### min_step
 

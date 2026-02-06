@@ -46,7 +46,49 @@ class MinAvgSolver:
             self.ref_counts[next_state_tuple] -= 1
             self.prune(next_state_tuple)
 
-    def solve(self, state_tuple: Tuple[int, ...], possible_indices: np.ndarray = None) -> float:
+    def prune_global(self, root_state: Tuple[int, ...]):
+        """
+        Keep only nodes reachable from root_state following the optimal policy.
+        """
+        print(f"Global pruning started. Initial policy size: {len(self.policy)}")
+        
+        reachable = set()
+        stack = [root_state]
+        
+        while stack:
+            state = stack.pop()
+            if state in reachable:
+                continue
+            reachable.add(state)
+            
+            if state not in self.policy:
+                continue
+                
+            move, _ = self.policy[state]
+            
+            # Expand children for the optimal move
+            observed = np.array(state, dtype=np.int8)
+            for outcome in [GridState.VOID, GridState.BODY, GridState.HEAD]:
+                next_observed = observed.copy()
+                next_observed[move] = outcome
+                next_state_tuple = tuple(next_observed)
+                
+                # Only follow if child exists/is relevant (though strictly we just follow the game logic)
+                # But we only care if it's in the policy or leads to something in the policy.
+                # Actually, we should just follow all branches of the optimal move.
+                stack.append(next_state_tuple)
+
+        # Remove unreachable nodes
+        all_states = list(self.policy.keys())
+        deleted_count = 0
+        for s in all_states:
+            if s not in reachable:
+                del self.policy[s]
+                deleted_count += 1
+                
+        print(f"Global pruning finished. Deleted {deleted_count} unreachable nodes. Final policy size: {len(self.policy)}")
+
+    def solve(self, state_tuple: Tuple[int, ...], possible_indices: np.ndarray = None, prune_nodes: bool = True) -> float:
         self.visited_nodes += 1
         if self.logging and self.visited_nodes % 5000 == 0:
             print(f"Visited Nodes: {self.visited_nodes}, Policy Size: {len(self.policy)}")
@@ -116,7 +158,7 @@ class MinAvgSolver:
                 next_indices_mask = (move_values == val)
                 next_possible_indices = possible_indices[next_indices_mask]
                 
-                child_avg = self.solve(next_state_tuple, next_possible_indices)
+                child_avg = self.solve(next_state_tuple, next_possible_indices, prune_nodes)
 
                 total_steps += child_count * child_avg
                 
@@ -138,18 +180,19 @@ class MinAvgSolver:
         self.policy[state_tuple] = (best_move, best_avg)
 
         # 5. Prune non-optimal branches
-        # Increment ref counts for the chosen best move's children
-        for res in move_results:
-            if res['move'] == best_move:
-                for child_state in res['children'].values():
-                    self.ref_counts[child_state] += 1
-                break
-        
-        # Prune other branches
-        for res in move_results:
-            if res['move'] != best_move:
-                for child_state in res['children'].values():
-                    self.prune(child_state)
+        if prune_nodes:
+            # Increment ref counts for the chosen best move's children
+            for res in move_results:
+                if res['move'] == best_move:
+                    for child_state in res['children'].values():
+                        self.ref_counts[child_state] += 1
+                    break
+            
+            # Prune other branches
+            for res in move_results:
+                if res['move'] != best_move:
+                    for child_state in res['children'].values():
+                        self.prune(child_state)
 
         return best_avg
 
@@ -173,7 +216,7 @@ def main():
     
     checkpoint_data = {}
     for state, (move, _) in solver.policy.items():
-        state_key = ",".join(map(str, state))
+        state_key = "".join(map(str, state))
         checkpoint_data[state_key] = move
 
     print(f"Saving checkpoint to {args.out} with {len(checkpoint_data)} states...")
