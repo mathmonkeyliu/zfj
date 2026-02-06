@@ -6,4 +6,5 @@ temp_policies/
 
 *.jsonl
 *.json
+!topk_*.json
 *.pkl
