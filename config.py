@@ -4,7 +4,7 @@ GRID_SIZE = 10
 LAYOUT_FILE = "layouts.jsonl"
 
 # min_avg config
-MAX_EXPAND_NODES = 100
+MAX_EXPAND_NODES = 10000
 
 # Coordinate convention:
 # A point is (x, y) where:

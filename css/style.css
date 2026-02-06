@@ -1,246 +1,418 @@
 /* css/style.css */
 :root {
-    --cell-size: 40px;
-    --grid-gap: 1px;
     --color-unknown: #ffffff;
-    --color-void: #bdbdbd;
-    --color-body: #66bb6a;
-    --color-head: #ef5350;
-    --color-border: #000000;
-    --color-text-ai: #2196f3;
+    --color-void: #e0e0e0;
+    --color-body: #81c784;
+    --color-head: #e57373;
+    --color-border: #424242;
+    --color-text-ai: #1976d2;
+    --color-highlight: #fff176;
+    --grid-gap: 1px;
+    --sidebar-width: 320px;
+    --bg-color: #fafafa;
 }
 
-body {
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* Prevent global scroll */
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: #333;
+}
+
+/* Main Layout Container - CSS Grid */
+.container {
+    display: grid;
+    height: 100%;
+    width: 100%;
+    
+    /* Default: Mobile / Portrait */
+    grid-template-columns: 100%;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas: 
+        "header"
+        "board"
+        "controls";
+}
+
+/* 1. Header Area */
+.layout-header {
+    grid-area: header;
     display: flex;
     flex-direction: column;
     align-items: center;
-    background-color: #f5f5f5;
-    margin: 0;
-    padding: 20px;
-    min-height: 100vh;
+    justify-content: center;
+    padding: 12px 16px 8px;
+    background: white;
+    z-index: 10;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 h1 {
-    color: #333;
-    margin-bottom: 20px;
-    font-size: 1.5rem;
+    margin: 0 0 8px 0;
+    font-size: 1.2rem;
+    color: #2c3e50;
+    font-weight: 600;
 }
 
-.container {
+/* Algorithm Selector */
+.algorithm-selector {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.algo-buttons {
+    display: flex;
+    background: #f1f2f6;
+    padding: 4px;
+    border-radius: 8px;
+    gap: 4px;
+}
+
+.btn-algo {
+    background: transparent;
+    border: none;
+    padding: 6px 16px;
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-algo.active {
     background: white;
-    padding: 32px;
-    border-radius: 16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    color: #2980b9;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* 2. Board Area */
+.layout-board {
+    grid-area: board;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: center;
-    width: 100%;
-    max-width: 420px;
-    box-sizing: border-box;
-    margin: 0 auto;
+    padding: 16px;
+    min-height: 0; /* Important for grid overflow */
+    min-width: 0;
+    position: relative;
+    background-color: var(--bg-color);
 }
 
-@media (max-width: 480px) {
-    body {
-        padding: 10px;
-    }
-    .container {
-        padding: 20px 16px;
-        box-shadow: none;
-        background: transparent;
-    }
-    .board {
-        border-width: 0;
-        background-color: transparent;
-        gap: 2px;
-    }
-    /* Calculate dynamic cell size for mobile if needed, or keep fixed but ensure fit */
-    /* Since 10x40px = 400px, this exceeds 320px-375px screens. We need responsive grid. */
-}
-
-/* Grid Responsive Override */
-@media (max-width: 440px) {
-    :root {
-        /* (Screen width - padding) / 10 */
-        --cell-size: calc((100vw - 40px) / 10); 
-    }
-    .board {
-        gap: 1px;
-        border: 1px solid #000;
-    }
-}
-
-.mode-switch {
-    margin-bottom: 20px;
-}
-
-.mode-switch a {
-    color: #1976d2;
-    text-decoration: none;
+/* Status Text */
+.status-text {
+    margin-bottom: 12px;
+    color: #546e7a;
+    font-size: 1rem;
     font-weight: 500;
+    height: 1.5em;
+    line-height: 1.5em;
+    text-align: center;
+    flex: 0 0 auto;
 }
 
-.mode-switch a:hover {
-    text-decoration: underline;
+/* The Board Wrapper */
+.board-wrapper {
+    position: relative;
+    /* Dimensions set by JS */
+    width: 300px; 
+    height: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: var(--color-border);
 }
 
-/* Grid */
+/* The Grid */
 .board {
     display: grid;
-    grid-template-columns: repeat(10, var(--cell-size));
-    grid-template-rows: repeat(10, var(--cell-size));
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
     gap: var(--grid-gap);
     background-color: var(--color-border);
     border: var(--grid-gap) solid var(--color-border);
-    margin-bottom: 20px;
+    width: 100%;
+    height: 100%;
     user-select: none;
+    touch-action: manipulation;
 }
 
-.cell {
+/* Board Overlay */
+.board-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    gap: var(--grid-gap);
+    padding: var(--grid-gap);
+    z-index: 5;
+}
+
+/* Cells */
+.cell, .overlay-cell {
+    position: relative;
     background-color: var(--color-unknown);
     display: flex;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    position: relative;
     font-weight: bold;
-    font-size: 14px;
-    transition: background-color 0.2s;
+    font-size: clamp(12px, 2.5vw, 18px); 
+    transition: background-color 0.15s ease;
+}
+
+.cell:hover {
+    filter: brightness(0.95);
 }
 
 .cell.void { background-color: var(--color-void); }
 .cell.body { background-color: var(--color-body); }
 .cell.head { background-color: var(--color-head); }
 
-.cell .ai-hint {
-    color: var(--color-text-ai);
-    font-size: 16px;
-    font-weight: 900;
+.cell.highlight {
+    position: relative;
     z-index: 2;
-    text-shadow: 0 0 2px white;
-    pointer-events: none;
+}
+.cell.highlight::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border: 3px solid #2980b9;
+    box-shadow: inset 0 0 15px rgba(41, 128, 185, 0.4);
 }
 
-/* Controls Container */
+.cell .ai-hint {
+    color: var(--color-text-ai);
+    font-weight: 900;
+    z-index: 3;
+    background: rgba(255,255,255,0.8);
+    border-radius: 50%;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    font-size: 0.9em;
+}
+
+.overlay-cell.head-hint { background-color: rgba(239, 83, 80, 0.7); }
+.overlay-cell.body-hint { background-color: rgba(102, 187, 106, 0.6); }
+
+/* 3. Footer / Controls Area */
+.layout-controls {
+    grid-area: controls;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 24px 24px;
+    background: white;
+    border-top: 1px solid #eee;
+    z-index: 10;
+}
+
+/* Controls Toolbar */
 .toolbar {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 16px;
-    margin-bottom: 24px;
+    width: 100%;
+    max-width: 400px;
+}
+
+.instruction-text {
+    font-size: 0.95rem;
+    color: #555;
+    text-align: center;
+    line-height: 1.4;
+    min-height: 1.4em;
+}
+
+.btn-group {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
     width: 100%;
 }
 
-/* Button Group */
-.btn-group {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
+/* Buttons */
 button {
-    padding: 10px 24px;
+    padding: 10px 20px;
     border: none;
     border-radius: 8px;
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: all 0.1s;
+    min-width: 90px;
     display: inline-flex;
-    align-items: center;
     justify-content: center;
-    min-width: 100px;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
-button:active {
-    transform: translateY(1px);
-    box-shadow: none;
-}
+button:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+button:active { transform: scale(0.98); box-shadow: none; }
+button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-button.primary {
-    background-color: #2196f3;
+button.primary { background-color: #2980b9; color: white; }
+button.primary:hover { background-color: #3498db; }
+
+button.secondary { background-color: #f5f6fa; color: #555; border: 1px solid #dcdde1; }
+button.secondary:hover { background-color: #e6e8ed; }
+
+.btn-feedback {
+    padding: 10px 16px;
+    min-width: 70px;
     color: white;
+    font-size: 0.9rem;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
+.f-void { background-color: var(--color-void); color: #666; }
+.f-body { background-color: var(--color-body); }
+.f-head { background-color: var(--color-head); }
 
-button.primary:hover {
-    background-color: #1e88e5;
-    box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
-}
-
-button.secondary {
-    background-color: #f5f5f5;
-    color: #555;
-    border: 1px solid #e0e0e0;
-}
-
-button.secondary:hover {
-    background-color: #eeeeee;
-    border-color: #d0d0d0;
-}
-
-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    box-shadow: none;
-}
-
-/* Explore Mode Palette */
+/* Explore Palette */
 .palette {
     display: flex;
     gap: 16px;
-    padding: 12px 16px;
-    background-color: #f8f9fa;
+    padding: 12px;
+    background: #f1f2f6;
     border-radius: 12px;
-    border: 1px solid #eee;
-    margin-bottom: 24px;
+    margin-bottom: 8px;
 }
 
 .palette-item {
-    width: 44px;
-    height: 44px;
-    border: 2px solid rgba(0,0,0,0.1);
+    width: 40px;
+    height: 40px;
+    border: 3px solid transparent;
+    border-radius: 8px;
     cursor: pointer;
-    border-radius: 10px;
-    position: relative;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: transform 0.2s;
 }
-
+.palette-item:hover { transform: scale(1.05); }
+.palette-item.active { border-color: #2c3e50; transform: scale(1.1); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
 .p-void { background-color: var(--color-void); }
 .p-body { background-color: var(--color-body); }
 .p-head { background-color: var(--color-head); }
 
-.palette-item:hover {
-    transform: translateY(-2px);
-    border-color: rgba(0,0,0,0.2);
+/* Mode Switch */
+.mode-switch { margin-top: 8px; }
+.mode-switch a {
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    text-decoration: none;
+    border-bottom: 1px dashed #b0bec5;
+    padding-bottom: 2px;
 }
+.mode-switch a:hover { color: #2980b9; border-bottom-style: solid; }
 
-.palette-item.active {
-    border-color: #333;
-    transform: scale(1.1);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1;
-}
-
+/* Loading */
 .loading-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.95);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 1000;
     flex-direction: column;
-    font-size: 1.2rem;
+    backdrop-filter: blur(5px);
 }
 
-.status-text {
-    margin-top: 10px;
-    color: #666;
-    font-size: 0.9rem;
-    height: 1.2em;
-    text-align: center;
+/* Github Corner */
+.github-corner {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 100;
+}
+.github-corner svg {
+    fill: #2c3e50;
+    color: #fff;
+    width: 60px;
+    height: 60px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+.github-corner:hover svg { opacity: 1; }
+
+
+/* --- Responsive Layouts --- */
+
+/* Desktop / Landscape: Sidebar Layout */
+@media (min-width: 800px) {
+    .container {
+        grid-template-columns: 1fr var(--sidebar-width);
+        grid-template-rows: auto 1fr;
+        grid-template-areas: 
+            "board header"
+            "board controls";
+    }
+
+    .layout-header {
+        border-bottom: 1px solid #eee;
+        padding-top: 40px; /* Space for github corner if needed, or just breathing room */
+        align-items: stretch;
+        background: white;
+    }
+
+    .layout-controls {
+        border-top: none;
+        justify-content: flex-start;
+        background: white;
+        padding-top: 0;
+    }
+
+    .toolbar {
+        max-width: none;
+    }
+    
+    .btn-group {
+        flex-direction: column; /* Stack buttons on sidebar */
+        width: 100%;
+    }
+    
+    .btn-group button {
+        width: 100%;
+    }
+
+    /* Keep feedback buttons in a row though */
+    .feedback-group {
+        flex-direction: row;
+    }
+    
+    .feedback-group button {
+        width: auto;
+        flex: 1;
+    }
+}
+
+/* Small Mobile Adjustments */
+@media (max-width: 400px) {
+    h1 { font-size: 1.1rem; }
+    .layout-board { padding: 8px; }
+    .btn-algo { padding: 4px 10px; }
+    button { padding: 8px 12px; font-size: 0.85rem; min-width: 60px; }
+    .github-corner svg { width: 40px; height: 40px; }
+    .status-text { font-size: 0.9rem; margin-bottom: 8px; }
 }
